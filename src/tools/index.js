@@ -16,6 +16,7 @@ import { profilerTools } from "./profiler/index.js";
 import { navmeshTools } from "./navmesh/index.js";
 import { animationTools } from "./animation/index.js";
 import { batchTools } from "./batch/index.js";
+import { runtimeTools } from "./runtime/index.js";
 
 /** @type {import("../core/types.js").ToolDefinition[]} */
 export const allTools = [
@@ -32,4 +33,5 @@ export const allTools = [
   ...navmeshTools,
   ...animationTools,
   ...batchTools,
+  ...runtimeTools,
 ];

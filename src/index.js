@@ -13,6 +13,19 @@ import { registerTools } from "./core/registry.js";
 import { registerResources } from "./core/resources.js";
 import { allTools } from "./tools/index.js";
 
+/**
+ * Resolve the runtime bridge endpoint from UNITY_MCP_RUNTIME_URL or default 8091.
+ * @returns {{host: string, port: number}}
+ */
+function runtimeEndpoint() {
+  const raw = process.env.UNITY_MCP_RUNTIME_URL;
+  if (raw) {
+    const m = raw.match(/^(?:tcp:\/\/)?([^:/]+):(\d+)/);
+    if (m) return { host: m[1], port: Number(m[2]) };
+  }
+  return { host: "127.0.0.1", port: 8091 };
+}
+
 async function main() {
   const server = new McpServer({ name: "unimancer", version: "0.1.0" });
 
@@ -21,6 +34,8 @@ async function main() {
     unity: new UnityConnection(),
     // name->tool registry so batch_execute can dispatch to any tool.
     tools: new Map(allTools.map((t) => [t.name, t])),
+    // Separate connection to the in-build/Play-mode runtime bridge (port 8091).
+    runtime: new UnityConnection(runtimeEndpoint()),
   };
 
   registerTools(server, allTools, ctx);
@@ -45,6 +60,7 @@ async function main() {
 
   const shutdown = () => {
     ctx.unity.close();
+    ctx.runtime.close();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
