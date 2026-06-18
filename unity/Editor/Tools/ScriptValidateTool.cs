@@ -97,6 +97,8 @@ namespace Unimancer
         {
             try
             {
+                EnsureRoslynLoaded();
+
                 // CSharpSyntaxTree lives in Microsoft.CodeAnalysis.CSharp.
                 Type syntaxTreeType =
                     Type.GetType("Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree, Microsoft.CodeAnalysis.CSharp")
@@ -196,6 +198,54 @@ namespace Unimancer
             {
                 // Any reflection/runtime failure -> let the caller fall back.
                 return null;
+            }
+        }
+
+        private static bool _roslynLoadAttempted;
+
+        /// <summary>
+        /// Roslyn isn't loaded into the Editor AppDomain by default. If the
+        /// CSharpSyntaxTree type isn't already resolvable, locate the Roslyn
+        /// assemblies shipped with the Unity Editor (preferring the Mono-runtime
+        /// matched copy) and load them so the reflection path can find them. Runs at
+        /// most once; any failure leaves Roslyn unloaded -> balance-check fallback.
+        /// </summary>
+        private static void EnsureRoslynLoaded()
+        {
+            if (_roslynLoadAttempted) return;
+            _roslynLoadAttempted = true;
+
+            if (FindLoadedType("Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree") != null)
+                return; // already available
+
+            try
+            {
+                var data = UnityEditor.EditorApplication.applicationContentsPath;
+                string[] candidates =
+                {
+                    Path.Combine(data, "MonoBleedingEdge", "lib", "mono", "4.5"),
+                    Path.Combine(data, "Tools", "BuildPipeline", "Unity.Analyzers.Common"),
+                };
+                string dir = candidates.FirstOrDefault(d =>
+                    File.Exists(Path.Combine(d, "Microsoft.CodeAnalysis.CSharp.dll")));
+                if (dir == null)
+                {
+                    var hit = Directory
+                        .GetFiles(data, "Microsoft.CodeAnalysis.CSharp.dll", SearchOption.AllDirectories)
+                        .FirstOrDefault();
+                    if (hit != null) dir = Path.GetDirectoryName(hit);
+                }
+                if (dir == null) return;
+
+                // Load the base assembly first so CSharp can resolve its reference.
+                var baseDll = Path.Combine(dir, "Microsoft.CodeAnalysis.dll");
+                if (File.Exists(baseDll)) Assembly.LoadFrom(baseDll);
+                var csDll = Path.Combine(dir, "Microsoft.CodeAnalysis.CSharp.dll");
+                if (File.Exists(csDll)) Assembly.LoadFrom(csDll);
+            }
+            catch
+            {
+                // Leave Roslyn unloaded; TryRoslyn returns null -> balance fallback.
             }
         }
 
