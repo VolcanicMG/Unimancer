@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "ignores": {
+    "advisory:@modelcontextprotocol/sdk@1.24.1:GHSA-345p-7cg4-v4c7": {
+      "reason": "HTTP StreamableHTTPServerTransport/server-reuse data leak; Unimancer is stdio-only and never instantiates an HTTP transport — not exploitable.",
+      "added": "2026-06-18"
+    },
+    "advisory:@modelcontextprotocol/sdk@1.24.1:GHSA-8r9q-7v3j-jr4g": {
+      "reason": "ReDoS in UriTemplate for resource templates with exploded arrays; Unimancer registers only tools (no resources/URI templates) — code path unreachable.",
+      "added": "2026-06-18"
+    }
+  }
+}

@@ -91,3 +91,4 @@ no-container-fallback: warn-approve
 #   default: [] / []  (license gate off)
 # license-deny: ["GPL-3.0", "AGPL-3.0", "GPL-2.0"]
 # license-allow: ["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"]
+allow: [@modelcontextprotocol/sdk]
