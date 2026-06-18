@@ -6,15 +6,15 @@ with **69 tools** spanning the core editor surface *plus* first-class
 **Android build & device tooling** that other Unity MCP servers don't have.
 
 ```
-[ AI client ] --MCP/stdio--> [ Unimancer server (Node/JS) ] --WebSocket--> [ Unity Editor package (C#) ]
-   Claude / Cursor                 src/                          ws://127.0.0.1:8090   unity/
+[ AI client ] --MCP/stdio--> [ Unimancer server (Node/JS) ] --TCP(JSON)--> [ Unity Editor package (C#) ]
+   Claude / Cursor                 src/                          tcp://127.0.0.1:8090   unity/
                                       |
                                       +--shell--> adb / emulator   (Android tools, no Unity needed)
 ```
 
 - **`src/`** — the Node/JavaScript MCP server (stdio). Owns tool definitions, the
   Unity WebSocket client, and the `adb`/`emulator` shell helpers.
-- **`unity/`** — the Unity UPM package (C#). Hosts a WebSocket server inside the
+- **`unity/`** — the Unity UPM package (C#). Hosts a TCP server inside the
   Editor (auto-starts on load) and executes engine-side tools via reflection.
 
 Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
@@ -61,7 +61,7 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `UNITY_MCP_URL` | `ws://127.0.0.1:8090` | Editor bridge URL |
+| `UNITY_MCP_URL` | `tcp://127.0.0.1:8090` | Editor bridge URL |
 | `ADB_PATH` | `adb` | path to the adb binary |
 | `EMULATOR_PATH` | `emulator` | path to the Android emulator binary |
 

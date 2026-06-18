@@ -78,7 +78,7 @@ function main() {
 
   // --- Unity side ---
   console.log("\n── Unity package (the C# bridge) ──");
-  console.log("  The bridge auto-starts on Editor load (InitializeOnLoad) and listens on ws://127.0.0.1:8090.");
+  console.log("  The bridge auto-starts on Editor load (InitializeOnLoad) and listens on tcp://127.0.0.1:8090.");
   console.log("  Recommended: Package Manager → + → Add package from git URL →");
   console.log(`     ${GIT_REMOTE}?path=/unity   (read-only; best for a first run)`);
   console.log("  Editable (for fixing C#): clone the repo on the SAME OS as Unity, then");
@@ -89,7 +89,7 @@ function main() {
 
   // --- Env knobs ---
   console.log("\n── Optional env vars ──");
-  console.log("  UNITY_MCP_URL   bridge URL (default ws://127.0.0.1:8090)");
+  console.log("  UNITY_MCP_URL   bridge URL (default tcp://127.0.0.1:8090)");
   console.log("  ADB_PATH        path to adb (default: adb on PATH)");
   console.log("  EMULATOR_PATH   path to the Android emulator binary");
 

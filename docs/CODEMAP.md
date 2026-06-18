@@ -13,7 +13,7 @@ unimancer/
 │   ├── core/
 │   │   ├── types.js          ToolDefinition typedef + ok()/err() result helpers
 │   │   ├── image.js          image() helper — return captures as MCP image blocks
-│   │   ├── unityConnection.js WebSocket client to the Editor (request/response by id)
+│   │   ├── unityConnection.js TCP client to the Editor (request/response by id)
 │   │   └── registry.js       registerTools(server, tools, ctx) — wraps each handler
 │   └── tools/
 │       ├── index.js          barrel: spreads every group into `allTools`
@@ -30,7 +30,7 @@ unimancer/
     └── Editor/
         ├── Core/
         │   ├── McpToolBase.cs base class: Name/Description/IsAsync/Execute/ExecuteAsync
-        │   └── McpBridge.cs   [InitializeOnLoad] WS server; reflects over McpToolBase
+        │   └── McpBridge.cs   [InitializeOnLoad] TCP server; reflects over McpToolBase
         ├── Setup/
         │   └── UnimancerSetupWindow.cs  Window → Unimancer → Setup (status + config)
         └── Tools/             one C# class per engine-side tool (+ shared helpers)
@@ -44,7 +44,7 @@ AI client → (stdio) → src/index.js
   → tool.handler(args, ctx):
       • Node-only (adb/emulator/*) → shell out via core/adb.js, return ok()/err()
       • engine tool → ctx.unity.request(name, args)  (core/unityConnection.js)
-            → WebSocket → McpBridge.Dispatch() → Tools/<Name>Tool.Execute(JObject)
+            → TCP(JSON) → McpBridge.Dispatch() → Tools/<Name>Tool.Execute(JObject)
             → result JObject → back over WS → handler wraps as ok()/image()
 ```
 
