@@ -39,7 +39,7 @@ namespace Unimancer
 
                 return new JObject
                 {
-                    ["instanceID"] = EntityId.ToULong(go.GetEntityId()),
+                    ["instanceID"] = EntityId.ToULong(go.GetEntityId()).ToString(),
                     ["path"] = GoResolve.Path(go),
                 };
             }

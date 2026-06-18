@@ -67,7 +67,7 @@ namespace Unimancer
 
                 return new JObject
                 {
-                    ["instanceID"] = EntityId.ToULong(instance.GetEntityId()),
+                    ["instanceID"] = EntityId.ToULong(instance.GetEntityId()).ToString(),
                     ["path"] = GetHierarchyPath(instance.transform),
                 };
             }

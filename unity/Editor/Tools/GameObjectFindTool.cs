@@ -37,6 +37,7 @@ namespace Unimancer
                 var includeInactive = parameters["includeInactive"]?.ToObject<bool>() ?? false;
 
                 var results = new JArray();
+                var seen = new System.Collections.Generic.HashSet<ulong>();
 
                 // Resources.FindObjectsOfTypeAll surfaces inactive objects too.
                 foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
@@ -56,11 +57,14 @@ namespace Unimancer
                     if (!string.IsNullOrEmpty(tag) && !go.CompareTag(tag))
                         continue;
 
+                    var eid = EntityId.ToULong(go.GetEntityId());
+                    if (!seen.Add(eid))
+                        continue; // FindObjectsOfTypeAll can surface an object more than once
                     results.Add(new JObject
                     {
                         ["name"] = go.name,
                         ["path"] = GoResolve.Path(go),
-                        ["instanceID"] = EntityId.ToULong(go.GetEntityId()),
+                        ["instanceID"] = eid.ToString(),
                         ["active"] = go.activeInHierarchy,
                     });
                 }
