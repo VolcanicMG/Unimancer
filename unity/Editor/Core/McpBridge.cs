@@ -34,6 +34,12 @@ namespace Unimancer
         private static readonly ConcurrentQueue<Action> MainThread = new();
         private static HttpListener _listener;
 
+        /// <summary>True while the Editor bridge is accepting WebSocket connections.</summary>
+        public static bool IsListening => _listener?.IsListening ?? false;
+
+        /// <summary>The WebSocket URL the Unimancer Node server connects to.</summary>
+        public static string BridgeUrl => "ws://127.0.0.1:8090";
+
         static McpBridge()
         {
             DiscoverTools();
