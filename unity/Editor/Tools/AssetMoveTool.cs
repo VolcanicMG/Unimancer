@@ -34,6 +34,11 @@ namespace Unimancer
                 if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(to))
                     return new JObject { ["error"] = "from and to are required" };
 
+                var fromGuard = PathGuard.Validate(from);
+                if (fromGuard != null) return fromGuard;
+                var toGuard = PathGuard.Validate(to);
+                if (toGuard != null) return toGuard;
+
                 // ValidateMoveAsset returns "" when the move is allowed.
                 var validation = AssetDatabase.ValidateMoveAsset(from, to);
                 if (!string.IsNullOrEmpty(validation))

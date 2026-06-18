@@ -37,6 +37,12 @@ namespace Unimancer
                 if (string.IsNullOrEmpty(path) && string.IsNullOrEmpty(scene.path))
                     return new JObject { ["error"] = "active scene is untitled; a path is required" };
 
+                if (!string.IsNullOrEmpty(path))
+                {
+                    var guard = PathGuard.Validate(path);
+                    if (guard != null) return guard;
+                }
+
                 bool saved = string.IsNullOrEmpty(path)
                     ? EditorSceneManager.SaveScene(scene)
                     : EditorSceneManager.SaveScene(scene, path);

@@ -31,6 +31,9 @@ namespace Unimancer
                 if (string.IsNullOrEmpty(path))
                     return new JObject { ["error"] = "path is required" };
 
+                var guard = PathGuard.Validate(path);
+                if (guard != null) return guard;
+
                 bool deleted = AssetDatabase.DeleteAsset(path);
                 return new JObject { ["deleted"] = deleted };
             }

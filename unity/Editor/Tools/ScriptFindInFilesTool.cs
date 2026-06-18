@@ -61,7 +61,7 @@ namespace Unimancer
 
                 Regex compiled = null;
                 if (useRegex)
-                    compiled = new Regex(query, RegexOptions.Compiled);
+                    compiled = new Regex(query, RegexOptions.Compiled, TimeSpan.FromSeconds(2)); // bound backtracking (ReDoS)
 
                 var matches = new JArray();
                 var truncated = false;

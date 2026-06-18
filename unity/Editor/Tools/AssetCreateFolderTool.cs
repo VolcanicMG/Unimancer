@@ -34,6 +34,11 @@ namespace Unimancer
                 if (string.IsNullOrEmpty(parent) || string.IsNullOrEmpty(name))
                     return new JObject { ["error"] = "parent and name are required" };
 
+                var guard = PathGuard.Validate(parent);
+                if (guard != null) return guard;
+                if (name.Contains("/") || name.Contains(".."))
+                    return new JObject { ["error"] = "name must not contain '/' or '..'" };
+
                 // CreateFolder returns the GUID of the new folder, or "" on failure.
                 var guid = AssetDatabase.CreateFolder(parent, name);
                 if (string.IsNullOrEmpty(guid))

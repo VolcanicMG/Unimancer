@@ -37,6 +37,9 @@ namespace Unimancer
                 if (string.IsNullOrEmpty(gameObjectPath) || string.IsNullOrEmpty(prefabPath))
                     return new JObject { ["error"] = "gameObjectPath and prefabPath are required" };
 
+                var guard = PathGuard.Validate(prefabPath);
+                if (guard != null) return guard;
+
                 var go = FindGameObject(gameObjectPath);
                 if (go == null)
                     return new JObject { ["error"] = $"GameObject not found: {gameObjectPath}" };
