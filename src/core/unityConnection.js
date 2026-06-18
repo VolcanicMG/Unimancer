@@ -43,6 +43,7 @@ export class UnityConnection {
     this.pending = new Map();
     /** @private @type {Promise<void>|null} */ this.connecting = null;
     /** @private — accumulates partial lines across data chunks. */ this.buffer = "";
+    /** @private @type {Array<(evt:object)=>void>} */ this.eventHandlers = [];
   }
 
   /**
@@ -100,6 +101,11 @@ export class UnityConnection {
   handleMessage(raw) {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+    // Unsolicited editor event (no request id): fan out to listeners.
+    if (msg && msg.event) {
+      for (const fn of this.eventHandlers) { try { fn(msg); } catch { /* ignore */ } }
+      return;
+    }
     const p = this.pending.get(msg.id);
     if (!p) return;
     this.pending.delete(msg.id);
@@ -125,6 +131,14 @@ export class UnityConnection {
       this.pending.set(id, { resolve, reject, timer });
       this.socket.write(JSON.stringify({ id, method, params }) + "\n");
     });
+  }
+
+  /**
+   * Register a listener for unsolicited editor events ({ event, data }).
+   * @param {(evt: object) => void} fn
+   */
+  onEvent(fn) {
+    this.eventHandlers.push(fn);
   }
 
   /** Close the connection (used on shutdown). */

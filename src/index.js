@@ -26,6 +26,20 @@ async function main() {
   registerTools(server, allTools, ctx);
   registerResources(server, ctx);
 
+  // Forward unsolicited Unity editor events to the client as MCP logging
+  // notifications (best-effort; ignored if the client didn't enable logging).
+  ctx.unity.onEvent((evt) => {
+    const level = evt && evt.event === "console_error" ? "error" : "info";
+    try {
+      const s = server.server;
+      if (s && typeof s.sendLoggingMessage === "function") {
+        s.sendLoggingMessage({ level, logger: "unity", data: evt }).catch(() => {});
+      }
+    } catch {
+      /* client may not support logging notifications */
+    }
+  });
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
