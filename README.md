@@ -44,6 +44,12 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
 
    The bridge **auto-starts** on Editor load. Check **Window → Unimancer → Setup** for live status.
 
+## Docs
+
+- [USAGE.md](docs/USAGE.md) — setup, tool groups, resources, notifications, runtime, troubleshooting
+- [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
+- [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
+
 ## Tools (69)
 
 | Group | Count | Needs Unity? | Examples |
