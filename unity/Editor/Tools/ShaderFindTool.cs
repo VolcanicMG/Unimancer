@@ -44,14 +44,14 @@ namespace Unimancer
                         return new JObject { ["found"] = false, ["name"] = name };
 
                     var props = new JArray();
-                    var count = ShaderUtil.GetPropertyCount(shader);
+                    var count = shader.GetPropertyCount();
                     for (var i = 0; i < count; i++)
                     {
                         props.Add(new JObject
                         {
-                            ["name"] = ShaderUtil.GetPropertyName(shader, i),
-                            ["type"] = ShaderUtil.GetPropertyType(shader, i).ToString(),
-                            ["description"] = ShaderUtil.GetPropertyDescription(shader, i),
+                            ["name"] = shader.GetPropertyName(i),
+                            ["type"] = shader.GetPropertyType(i).ToString(),
+                            ["description"] = shader.GetPropertyDescription(i),
                         });
                     }
 

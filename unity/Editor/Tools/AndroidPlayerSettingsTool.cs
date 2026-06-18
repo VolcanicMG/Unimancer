@@ -76,7 +76,7 @@ namespace Unimancer
         }
 
         /// <summary>Map the requested architecture names to an AndroidArchitecture flag set.</summary>
-        /// <param name="archArr">Array of "ARM64"|"ARMv7"|"X86_64".</param>
+        /// <param name="archArr">Array of "ARM64"|"ARMv7" (X86_64 removed in Unity 6.5).</param>
         /// <returns>The combined AndroidArchitecture flags.</returns>
         private static AndroidArchitecture ParseArchitectures(JArray archArr)
         {
@@ -87,7 +87,6 @@ namespace Unimancer
                 {
                     case "ARM64": arch |= AndroidArchitecture.ARM64; break;
                     case "ARMv7": arch |= AndroidArchitecture.ARMv7; break;
-                    case "X86_64": arch |= AndroidArchitecture.X86_64; break;
                 }
             }
             return arch;

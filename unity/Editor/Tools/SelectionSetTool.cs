@@ -42,15 +42,15 @@ namespace Unimancer
                     if (t.Type == JTokenType.Integer)
                     {
                         // Instance ID path.
-                        obj = EditorUtility.InstanceIDToObject(t.ToObject<int>());
+                        obj = EditorUtility.EntityIdToObject(EntityId.FromULong(t.ToObject<ulong>()));
                     }
                     else
                     {
                         var s = t.ToString();
                         // A numeric string is also treated as an instance ID;
                         // otherwise it is an asset path.
-                        if (int.TryParse(s, out var id))
-                            obj = EditorUtility.InstanceIDToObject(id);
+                        if (ulong.TryParse(s, out var id))
+                            obj = EditorUtility.EntityIdToObject(EntityId.FromULong(id));
                         else
                             obj = AssetDatabase.LoadMainAssetAtPath(s);
                     }

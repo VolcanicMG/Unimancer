@@ -23,9 +23,10 @@ namespace Unimancer
                 return null;
 
             // Try instanceID first (handles "12345" and bare integers).
-            if (int.TryParse(target, out var id))
+            if (ulong.TryParse(target, out var id))
             {
-                var obj = UnityEditor.EditorUtility.InstanceIDToObject(id) as GameObject;
+                // Unity 6.5: instance IDs are EntityId handles (no int conversion).
+                var obj = UnityEditor.EditorUtility.EntityIdToObject(EntityId.FromULong(id)) as GameObject;
                 if (obj != null)
                     return obj;
             }

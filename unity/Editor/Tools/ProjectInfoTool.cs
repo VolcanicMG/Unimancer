@@ -34,7 +34,8 @@ namespace Unimancer
             {
                 var activeTarget = EditorUserBuildSettings.activeBuildTarget;
                 var targetGroup = BuildPipeline.GetBuildTargetGroup(activeTarget);
-                var scriptingBackend = PlayerSettings.GetScriptingBackend(targetGroup).ToString();
+                var namedTarget = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(targetGroup);
+                var scriptingBackend = PlayerSettings.GetScriptingBackend(namedTarget).ToString();
 
                 var info = new JObject
                 {

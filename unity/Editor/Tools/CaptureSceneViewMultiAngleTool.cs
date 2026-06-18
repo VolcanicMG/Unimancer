@@ -128,7 +128,7 @@ namespace Unimancer
         private static Bounds? ComputeSceneBounds()
         {
             var renderers = UnityEngine.Object.FindObjectsByType<Renderer>(
-                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+                FindObjectsInactive.Exclude);
             if (renderers == null || renderers.Length == 0)
                 return null;
 
