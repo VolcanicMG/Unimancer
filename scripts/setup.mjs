@@ -79,9 +79,12 @@ function main() {
   // --- Unity side ---
   console.log("\n── Unity package (the C# bridge) ──");
   console.log("  The bridge auto-starts on Editor load (InitializeOnLoad) and listens on ws://127.0.0.1:8090.");
-  console.log("  Install ONE of:");
-  console.log(`   • Local (this checkout):  Package Manager → + → Add package from disk → ${join(UNITY_PKG, "package.json")}`);
-  console.log(`   • Git (UPM):              Package Manager → + → Add package from git URL → ${GIT_REMOTE}?path=/unity`);
+  console.log("  Recommended: Package Manager → + → Add package from git URL →");
+  console.log(`     ${GIT_REMOTE}?path=/unity   (read-only; best for a first run)`);
+  console.log("  Editable (for fixing C#): clone the repo on the SAME OS as Unity, then");
+  console.log(`     Add package from disk → <clone>/unity/package.json`);
+  console.log(`  Local path here: ${join(UNITY_PKG, "package.json")}`);
+  console.log("  NOTE (WSL): do NOT add from disk over a \\\\wsl.localhost\\... path — Unity rejects it; use the git URL or a Windows clone.");
   console.log("  Requires Unity 6000.5+ and com.unity.nuget.newtonsoft-json (auto-resolved).");
 
   // --- Env knobs ---

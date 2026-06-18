@@ -34,11 +34,15 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
    ```bash
    claude mcp add unimancer -- node /abs/path/to/unimancer/src/index.js
    ```
-3. **Add the Unity package** (one of):
-   - Package Manager → **Add package from disk** → `unity/package.json`
-   - Package Manager → **Add package from git URL** → `https://github.com/VolcanicMG/Unimancer.git?path=/unity`
-   The bridge **auto-starts** on Editor load. Check **Window → Unimancer → Setup**
-   for live status.
+3. **Add the Unity package**:
+   - **Recommended / first run** — Package Manager → **Add package from git URL** →
+     `https://github.com/VolcanicMG/Unimancer.git?path=/unity` (read-only).
+   - **Editable (to fix C#)** — clone the repo on the *same OS as Unity*, then
+     **Add package from disk** → `<clone>/unity/package.json`.
+   - **WSL note:** do not add from disk over a `\\wsl.localhost\...` UNC path — Unity
+     rejects it; use the git URL or a Windows clone.
+
+   The bridge **auto-starts** on Editor load. Check **Window → Unimancer → Setup** for live status.
 
 ## Tools (69)
 
