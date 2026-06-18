@@ -22,6 +22,7 @@
 /**
  * @typedef {Object} ToolContext
  * @property {import("./unityConnection.js").UnityConnection} unity - live Editor connection (may be disconnected).
+ * @property {Map<string, ToolDefinition>} [tools] - name->tool registry, injected at startup for batch_execute dispatch.
  */
 
 /**

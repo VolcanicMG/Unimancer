@@ -15,6 +15,7 @@ import { scriptEditTools } from "./scriptEdit/index.js";
 import { profilerTools } from "./profiler/index.js";
 import { navmeshTools } from "./navmesh/index.js";
 import { animationTools } from "./animation/index.js";
+import { batchTools } from "./batch/index.js";
 
 /** @type {import("../core/types.js").ToolDefinition[]} */
 export const allTools = [
@@ -30,4 +31,5 @@ export const allTools = [
   ...profilerTools,
   ...navmeshTools,
   ...animationTools,
+  ...batchTools,
 ];
