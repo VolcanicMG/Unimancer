@@ -1,7 +1,7 @@
 {
   "name": "Unimancer.Editor",
   "rootNamespace": "Unimancer",
-  "references": ["Unity.Plastic.Newtonsoft.Json"],
+  "references": [],
   "includePlatforms": ["Editor"],
   "autoReferenced": true,
   "noEngineReferences": false
