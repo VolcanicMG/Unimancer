@@ -38,7 +38,7 @@ namespace Unimancer
                     {
                         ["name"] = obj.name,
                         ["path"] = AssetDatabase.GetAssetPath(obj),
-                        ["instanceID"] = obj.GetEntityId().ToULong(),
+                        ["instanceID"] = EntityId.ToULong(obj.GetEntityId()),
                         ["type"] = obj.GetType().Name,
                     });
                 }

@@ -60,7 +60,7 @@ namespace Unimancer
                     {
                         ["name"] = go.name,
                         ["path"] = GoResolve.Path(go),
-                        ["instanceID"] = go.GetEntityId().ToULong(),
+                        ["instanceID"] = EntityId.ToULong(go.GetEntityId()),
                         ["active"] = go.activeInHierarchy,
                     });
                 }
