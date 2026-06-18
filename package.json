@@ -1,0 +1,32 @@
+{
+  "name": "unimancer",
+  "version": "0.1.0",
+  "description": "Command the Unity engine with AI — an MCP server with deep Android build tooling.",
+  "type": "module",
+  "bin": {
+    "unimancer": "src/index.js"
+  },
+  "main": "src/index.js",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["mcp", "unity", "android", "game-development", "model-context-protocol"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "ws": "8.21.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "4.1.9"
+  }
+}

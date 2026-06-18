@@ -1,0 +1,22 @@
+# Node
+node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# Env / secrets
+.env
+.env.*
+*.keystore
+*.jks
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Unity (the C# package side, if a test project is added)
+unity/**/Library/
+unity/**/Temp/
+unity/**/Logs/
+unity/**/obj/

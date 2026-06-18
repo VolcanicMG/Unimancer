@@ -1,0 +1,11 @@
+{
+  "name": "com.unimancer.mcp",
+  "version": "0.1.0",
+  "displayName": "Unimancer MCP",
+  "description": "Command the Unity engine with AI via the Model Context Protocol.",
+  "unity": "6000.5",
+  "author": { "name": "VolcanicMG" },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  }
+}
