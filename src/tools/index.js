@@ -11,6 +11,10 @@ import { sceneAssetTools } from "./sceneAssets/index.js";
 import { scriptTools } from "./scripts/index.js";
 import { editorTools } from "./editor/index.js";
 import { captureTools } from "./capture/index.js";
+import { scriptEditTools } from "./scriptEdit/index.js";
+import { profilerTools } from "./profiler/index.js";
+import { navmeshTools } from "./navmesh/index.js";
+import { animationTools } from "./animation/index.js";
 
 /** @type {import("../core/types.js").ToolDefinition[]} */
 export const allTools = [
@@ -22,4 +26,8 @@ export const allTools = [
   ...scriptTools,
   ...editorTools,
   ...captureTools,
+  ...scriptEditTools,
+  ...profilerTools,
+  ...navmeshTools,
+  ...animationTools,
 ];
