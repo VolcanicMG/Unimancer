@@ -140,7 +140,54 @@ Example: "set timeScale to 0.2, find the Player, and call TakeDamage(10) on its 
 
 ---
 
-## 8. Environment variables
+## 8. In-Editor chat (no API key)
+
+**Window → Unimancer → Chat** opens a chat panel that talks to your local `claude`
+CLI in headless streaming mode (`claude -p --output-format stream-json`). Because it
+drives Claude Code itself, it:
+
+- runs on your **Claude subscription, not a pay-per-token API key** (it never passes
+  `--bare` and unsets `ANTHROPIC_API_KEY`, so Claude Code uses your logged-in auth);
+- inherits the **full Unimancer MCP tool surface** automatically — the agent loop and
+  tool dispatch live in Claude Code, not in this window.
+
+Requirements & notes:
+- The `claude` CLI must be installed and logged in on the machine. On Windows+WSL,
+  leave the **WSL wrap** toggle on (Setup window) so the spawn is `wsl bash -lc …`.
+- Set the Node server path once in **Window → Unimancer → Setup**; the chat reuses it.
+- Conversations are multi-turn (`--resume <session_id>`); tool calls render inline.
+- **Settings** (in the Chat window): `claude` command, model override, and the
+  `--allowedTools` value (default `mcp__unimancer` = allow all Unimancer tools).
+- This feature is for machines that have Claude Code; the MCP server itself still works
+  with any MCP client independently.
+
+**Rich editor features:**
+- **Reference objects** — drag GameObjects/assets into the chat, click **@ Reference** to
+  pick one, or **Use selection**. Attached objects appear as chips and are expanded into a
+  `## Referenced Unity objects` context block (name, type, hierarchy/asset path, components)
+  on send, so the agent gets real data.
+- **Clickable replies** — when the agent writes `[[unity:<handle>]]`, the window renders a
+  `↪ <name>` link that selects + pings the object in the Hierarchy/Project. Handles use
+  `GlobalObjectId` (or a hierarchy path), seeded from the objects you attach.
+- **Inline images** — screenshots returned by the capture tools render directly in the thread.
+- **History** — every conversation is saved under `<Project>/Library/Unimancer/Chats/`
+  (excluded from version control) and reloads via the **History** button, resuming the
+  underlying Claude Code session. The menu also has **Delete/‹chat›** (per-chat, confirmed)
+  and **Delete all chats…**.
+- **Project context** — the editable system prompt (Settings) tells the agent things like
+  "this project uses Unity Version Control, do not `git init`".
+- **Markdown rendering** — replies render headings, bold, lists, inline code, and fenced
+  code blocks (each with **Copy** and **Save…** buttons).
+- **Permission mode** (Settings) — **Auto-approve** (agent acts) or **Plan (propose only)**
+  (`--permission-mode plan`: the agent proposes changes without executing — review, then
+  switch to Auto and tell it to proceed).
+- **Quick actions** (toolbar) — *Describe scene*, *Explain selection* (auto-attaches the
+  selection), *Fix last error* (grabs the latest Console error), and a **Sync selection**
+  toggle that auto-attaches the current selection to every message.
+
+---
+
+## 9. Environment variables
 
 | Var | Default | Purpose |
 |---|---|---|
@@ -151,7 +198,7 @@ Example: "set timeScale to 0.2, find the Player, and call TakeDamage(10) on its 
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -161,6 +208,7 @@ Example: "set timeScale to 0.2, find the Player, and call TakeDamage(10) on its 
 | `instanceID` looks like a huge number | it's a string (EntityId, exceeds JS int range) — target objects by **path** or pass the id back as a string |
 | Changed C# but no effect | Unity recompiles on focus — alt-tab to the Editor; restart the MCP client for Node-side changes |
 | Package add fails over `\\wsl.localhost\…` | use a Windows clone or embed into `<Project>/Packages/`; private repo blocks the git-URL method |
+| Chat window does nothing / errors | `claude` not on PATH in the spawned shell, not logged in, or `ANTHROPIC_API_KEY` is set (unset it for subscription auth); set the Node path in Setup |
 
 ---
 

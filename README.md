@@ -2,7 +2,7 @@
 
 **Command the Unity engine with AI.** Unimancer is a Model Context Protocol (MCP)
 server that bridges AI assistants (Claude, Cursor, etc.) to the Unity Editor —
-with **69 tools** spanning the core editor surface *plus* first-class
+with **93 tools** spanning the core editor surface *plus* first-class
 **Android build & device tooling** that other Unity MCP servers don't have.
 
 ```
@@ -44,13 +44,27 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
 
    The bridge **auto-starts** on Editor load. Check **Window → Unimancer → Setup** for live status.
 
+## In-Editor chat — no API key 🆕
+
+A chat panel **inside Unity** (**Window → Unimancer → Chat**) that drives your local
+`claude` CLI in headless streaming mode. It runs on your **Claude subscription, not a
+pay-per-token API key**, and inherits the full Unimancer MCP tool surface — the agent
+loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
+
+- Needs the `claude` CLI installed & logged in on the machine. **WSL is fine** — the
+  window WSL-wraps the spawn (toggle in **Setup**). Keep `ANTHROPIC_API_KEY` unset so
+  Claude Code uses your subscription.
+- Reuses the Node server path you set in **Window → Unimancer → Setup**.
+- Multi-turn via `--resume`; tool calls are shown inline. *Phase 2* adds @-referencing
+  of Editor objects/assets.
+
 ## Docs
 
 - [USAGE.md](docs/USAGE.md) — setup, tool groups, resources, notifications, runtime, troubleshooting
 - [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
 - [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
 
-## Tools (69)
+## Tools (93)
 
 | Group | Count | Needs Unity? | Examples |
 |---|---|---|---|

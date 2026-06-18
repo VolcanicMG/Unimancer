@@ -33,6 +33,9 @@ unimancer/
         │   └── McpBridge.cs   [InitializeOnLoad] TCP server; reflects over McpToolBase
         ├── Setup/
         │   └── UnimancerSetupWindow.cs  Window → Unimancer → Setup (status + config)
+        ├── Chat/              in-Editor chat that drives the local `claude` CLI (no API key)
+        │   ├── ClaudeCliSession.cs    spawns `claude -p` stream-json, parses events
+        │   └── UnimancerChatWindow.cs Window → Unimancer → Chat (IMGUI panel)
         └── Tools/             one C# class per engine-side tool (+ shared helpers)
 ```
 
