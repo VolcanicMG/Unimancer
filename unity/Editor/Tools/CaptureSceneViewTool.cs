@@ -31,10 +31,15 @@ namespace Unimancer
         {
             try
             {
+                // outputPath optional — omit to return the image inline (avoids
+                // WSL/Windows path mismatches); provide it to also save Editor-side.
                 var outputPath = parameters["outputPath"]?.ToString();
-                var guard = CaptureUtil.ValidateOutputPath(outputPath);
-                if (guard != null)
-                    return guard;
+                if (!string.IsNullOrEmpty(outputPath))
+                {
+                    var guard = CaptureUtil.ValidateOutputPath(outputPath);
+                    if (guard != null)
+                        return guard;
+                }
 
                 var width = CaptureUtil.IntOr(parameters, "width", 1280);
                 var height = CaptureUtil.IntOr(parameters, "height", 720);
@@ -43,10 +48,13 @@ namespace Unimancer
                 if (sceneView == null || sceneView.camera == null)
                     return new JObject { ["error"] = "no Scene view is open" };
 
-                CaptureUtil.RenderCameraToPng(sceneView.camera, width, height, outputPath);
+                var png = CaptureUtil.RenderCameraToPngBytes(sceneView.camera, width, height);
+                if (!string.IsNullOrEmpty(outputPath))
+                    CaptureUtil.WritePng(outputPath, png);
 
                 return new JObject
                 {
+                    ["base64"] = Convert.ToBase64String(png),
                     ["path"] = outputPath,
                     ["width"] = width,
                     ["height"] = height,

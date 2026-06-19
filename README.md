@@ -41,8 +41,21 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
      **Add package from disk** → `<clone>/unity/package.json`.
    - **WSL note:** do not add from disk over a `\\wsl.localhost\...` UNC path — Unity
      rejects it; use the git URL or a Windows clone.
+   - **WSL dev loop (edit here, Unity compiles there):** if this repo lives on the
+     WSL filesystem but the package is embedded in a Windows-side Unity project,
+     run `./scripts/dev-sync.sh [embedded-package-dir]` in a spare terminal. It
+     content-mirrors `unity/` into the embedded copy on a 2 s poll (checksum-based,
+     `*.meta` preserved), so your edits reach the Editor without manual copying.
 
    The bridge **auto-starts** on Editor load. Check **Window → Unimancer → Setup** for live status.
+   If it ever shows *not listening* (e.g. the port was held by a stale socket),
+   use **Window → Unimancer → Restart Bridge** (or the **Restart** button in the
+   Setup window / Chat header). The bridge marks its socket **non-inheritable** (so
+   Unity child processes — e.g. the AI Assistant `relay_win.exe` — can't keep port
+   8090 open after the Editor dies), disposes the socket on every reload, and retries
+   the bind, so a recompile/restart won't normally wedge it. If an *older* session's
+   child still squats the port, find it with `netstat -ano | findstr :8090`, end that
+   PID, then click Restart Bridge.
 
 ## In-Editor chat — no API key 🆕
 

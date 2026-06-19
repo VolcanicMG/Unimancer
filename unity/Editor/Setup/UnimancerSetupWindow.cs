@@ -87,7 +87,10 @@ namespace Unimancer
             GUI.color = prev;
             EditorGUILayout.LabelField("Endpoint", McpBridge.BridgeUrl);
             if (!live)
+            {
                 EditorGUILayout.HelpBox("Bridge not listening — check the Console for [Unimancer] errors (e.g. port 8090 in use).", MessageType.Warning);
+                if (GUILayout.Button("Restart bridge")) McpBridge.Restart();
+            }
         }
 
         /// <summary>Persist the path + WSL toggle to EditorPrefs.</summary>

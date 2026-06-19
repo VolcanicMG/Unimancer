@@ -32,10 +32,16 @@ namespace Unimancer
         {
             try
             {
+                // outputPath is optional: when omitted we just return the image inline
+                // over the bridge (no shared file), which sidesteps WSL/Windows path
+                // mismatches. When provided, we also save it Editor-side.
                 var outputPath = parameters["outputPath"]?.ToString();
-                var guard = CaptureUtil.ValidateOutputPath(outputPath);
-                if (guard != null)
-                    return guard;
+                if (!string.IsNullOrEmpty(outputPath))
+                {
+                    var guard = CaptureUtil.ValidateOutputPath(outputPath);
+                    if (guard != null)
+                        return guard;
+                }
 
                 var width = CaptureUtil.IntOr(parameters, "width", 1280);
                 var height = CaptureUtil.IntOr(parameters, "height", 720);
@@ -47,10 +53,13 @@ namespace Unimancer
                 if (cam == null)
                     return new JObject { ["error"] = "no camera found (no Camera.main and no enabled camera in the scene)" };
 
-                CaptureUtil.RenderCameraToPng(cam, width, height, outputPath);
+                var png = CaptureUtil.RenderCameraToPngBytes(cam, width, height);
+                if (!string.IsNullOrEmpty(outputPath))
+                    CaptureUtil.WritePng(outputPath, png);
 
                 return new JObject
                 {
+                    ["base64"] = Convert.ToBase64String(png),
                     ["path"] = outputPath,
                     ["width"] = width,
                     ["height"] = height,

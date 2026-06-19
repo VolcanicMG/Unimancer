@@ -35,26 +35,23 @@ namespace Unimancer
         }
 
         /// <summary>
-        /// Render a camera into an offscreen RenderTexture at width x height, read
-        /// the pixels into a Texture2D, encode to PNG, and write the bytes to disk.
-        /// Restores the camera's previous targetTexture and the active RenderTexture,
-        /// and cleans up the temporary resources.
+        /// Render a camera into an offscreen RenderTexture at width x height, read the
+        /// pixels into a Texture2D, and return the encoded PNG bytes. Restores the
+        /// camera's previous targetTexture and the active RenderTexture and frees the
+        /// temporaries. Returning bytes (instead of writing a file) lets callers hand
+        /// the image straight back over the bridge — avoiding shared-path failures when
+        /// Unity (Windows) and the Node server (WSL) disagree on what a path means.
         /// </summary>
         /// <param name="cam">The camera to render (must not be null).</param>
         /// <param name="width">Output width in pixels.</param>
         /// <param name="height">Output height in pixels.</param>
-        /// <param name="outputPath">Absolute file path for the PNG.</param>
-        public static void RenderCameraToPng(Camera cam, int width, int height, string outputPath)
+        /// <returns>The PNG-encoded bytes.</returns>
+        public static byte[] RenderCameraToPngBytes(Camera cam, int width, int height)
         {
             if (cam == null)
                 throw new ArgumentNullException(nameof(cam));
             if (width <= 0 || height <= 0)
                 throw new ArgumentException("width and height must be positive.");
-
-            // Ensure the destination directory exists before writing.
-            var dir = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
 
             var rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
             rt.Create();
@@ -72,8 +69,7 @@ namespace Unimancer
                 tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                 tex.Apply();
 
-                var png = tex.EncodeToPNG();
-                File.WriteAllBytes(outputPath, png);
+                return tex.EncodeToPNG();
             }
             finally
             {
@@ -85,6 +81,23 @@ namespace Unimancer
                 rt.Release();
                 UnityEngine.Object.DestroyImmediate(rt);
             }
+        }
+
+        /// <summary>Write PNG bytes to <paramref name="outputPath"/>, creating the directory if needed.</summary>
+        /// <param name="outputPath">Absolute file path for the PNG.</param>
+        /// <param name="png">The PNG-encoded bytes to write.</param>
+        public static void WritePng(string outputPath, byte[] png)
+        {
+            var dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            File.WriteAllBytes(outputPath, png);
+        }
+
+        /// <summary>Render a camera and write the PNG to disk (convenience wrapper).</summary>
+        public static void RenderCameraToPng(Camera cam, int width, int height, string outputPath)
+        {
+            WritePng(outputPath, RenderCameraToPngBytes(cam, width, height));
         }
 
         /// <summary>Read an int parameter with a default fallback.</summary>

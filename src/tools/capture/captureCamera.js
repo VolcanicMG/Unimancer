@@ -14,7 +14,7 @@ export const captureCamera = {
   description:
     "Render a specific Camera in the scene to a PNG and return it as an image. Identify the camera by 'target' (a GameObject hierarchy path or instanceID of an object with a Camera) or by 'cameraName'. width/height default to 1280x720. Errors if the camera cannot be resolved. Requires the Unity Editor open with the Unimancer package.",
   inputSchema: {
-    outputPath: z.string().describe("Absolute output file path for the PNG."),
+    outputPath: z.string().optional().describe("Optional absolute path to ALSO save the PNG Editor-side. Omit it to just get the image inline (recommended — avoids WSL/Windows path mismatches)."),
     target: z
       .string()
       .optional()
@@ -31,8 +31,9 @@ export const captureCamera = {
   async handler(args, ctx) {
     try {
       const r = await ctx.unity.request("capture_camera", args);
-      const b64 = (await readFile(r.path)).toString("base64");
-      return image(b64, "image/png", `Saved ${r.path} (${r.width}x${r.height})`);
+      const b64 = r.base64 ?? (await readFile(r.path)).toString("base64");
+      const note = r.path ? `Saved ${r.path} (${r.width}x${r.height})` : `${r.width}x${r.height}`;
+      return image(b64, "image/png", note);
     } catch (e) {
       return err(e.message);
     }

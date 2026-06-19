@@ -74,6 +74,22 @@ namespace Unimancer
         private readonly string _permissionMode;
         private Process _proc;
 
+        // Live sessions so a domain reload can kill their in-flight processes. Without this
+        // the claude process (and its child node MCP server) is orphaned on recompile —
+        // streaming into a dead handler and keeping port 8090's client side busy. Static
+        // state resets each reload, so this never accumulates across reloads.
+        private static readonly System.Collections.Generic.List<ClaudeCliSession> Live = new System.Collections.Generic.List<ClaudeCliSession>();
+
+        /// <summary>Register a one-time hook that kills in-flight chat processes before a domain reload.</summary>
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void InstallReloadGuard()
+        {
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += () =>
+            {
+                lock (Live) foreach (var live in Live.ToArray()) { try { live.Cancel(); } catch { } }
+            };
+        }
+
         /// <summary>
         /// Create a chat session bound to one Unimancer Node server.
         /// </summary>
@@ -89,10 +105,15 @@ namespace Unimancer
             _wrapWsl = wrapWsl;
             _claudeCmd = string.IsNullOrEmpty(claudeCmd) ? "claude" : claudeCmd;
             _nodeServerPath = nodeServerPath ?? "";
-            _allowedTools = string.IsNullOrEmpty(allowedTools) ? "mcp__unimancer" : allowedTools;
+            // Always permit the built-in Read tool so the agent can view attached
+            // screenshots (and read files) — headless -p can't prompt for it otherwise.
+            var tools = string.IsNullOrEmpty(allowedTools) ? "mcp__unimancer" : allowedTools;
+            if (!tools.Contains("Read")) tools += " Read";
+            _allowedTools = tools;
             _model = model ?? "";
             _systemPrompt = systemPrompt ?? "";
             _permissionMode = string.IsNullOrEmpty(permissionMode) ? "acceptEdits" : permissionMode;
+            lock (Live) Live.Add(this);
         }
 
         /// <summary>Forget the conversation so the next <see cref="Send"/> starts fresh.</summary>
@@ -270,7 +291,7 @@ namespace Unimancer
                     if (content != null)
                         foreach (var block in content)
                             if ((string)block["type"] == "tool_use")
-                                Enqueue(ChatEventKind.ToolUse, (string)block["name"] ?? "tool", false);
+                                Enqueue(ChatEventKind.ToolUse, SummarizeToolUse(block), false);
                     ScanForImages(content); // assistant may embed images directly
                     break;
 
@@ -304,6 +325,57 @@ namespace Unimancer
                     ScanForImages(block["content"] as JArray);
                 }
             }
+        }
+
+        /// <summary>
+        /// Build a readable one-liner for a tool_use block so the chat shows *what*
+        /// the agent is doing — e.g. "Read …/Chat/UnimancerChatWindow.cs" or
+        /// "Bash (npm test)" instead of a bare "Read"/"Bash". Surfaces the most
+        /// meaningful argument per tool; falls back to the tool name alone.
+        /// </summary>
+        private static string SummarizeToolUse(JToken block)
+        {
+            var name = (string)block["name"] ?? "tool";
+            var input = block["input"] as JObject;
+            if (input == null) return name;
+
+            // The argument worth showing, in priority order — first present wins.
+            string[] keys = { "file_path", "path", "notebook_path", "pattern", "command", "url", "query", "prompt", "description" };
+            string arg = null, usedKey = null;
+            foreach (var k in keys)
+            {
+                var v = input[k];
+                if (v != null && v.Type != JTokenType.Null && v.Type != JTokenType.Object && v.Type != JTokenType.Array)
+                {
+                    arg = v.ToString();
+                    usedKey = k;
+                    break;
+                }
+            }
+            if (string.IsNullOrEmpty(arg)) return name;
+
+            // Paths keep their tail (filename + a little context); free text is length-capped.
+            bool isPath = usedKey == "file_path" || usedKey == "path" || usedKey == "notebook_path"
+                          || arg.Contains("/") || arg.Contains("\\");
+            arg = isPath ? ShortenPath(arg) : Shorten(arg.Replace('\n', ' ').Replace('\r', ' '), 60);
+            return name + " " + arg;
+        }
+
+        /// <summary>Trim a path to its last two segments (e.g. "…/Chat/Foo.cs") for compact display.</summary>
+        private static string ShortenPath(string p)
+        {
+            p = p.Replace('\\', '/').TrimEnd('/');
+            var parts = p.Split('/');
+            if (parts.Length > 2)
+                return "…/" + parts[parts.Length - 2] + "/" + parts[parts.Length - 1];
+            return p;
+        }
+
+        /// <summary>Collapse whitespace and cap a string to <paramref name="max"/> chars with an ellipsis.</summary>
+        private static string Shorten(string s, int max)
+        {
+            s = s.Trim();
+            return s.Length <= max ? s : s.Substring(0, max - 1) + "…";
         }
 
         private int SafeExitCode()

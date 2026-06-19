@@ -47,10 +47,15 @@ namespace Unimancer
         {
             try
             {
+                // outputDir optional — omit to return the images inline (avoids
+                // WSL/Windows path mismatches); provide it to also save them Editor-side.
                 var outputDir = parameters["outputDir"]?.ToString();
-                var guard = CaptureUtil.ValidateOutputPath(outputDir);
-                if (guard != null)
-                    return guard;
+                if (!string.IsNullOrEmpty(outputDir))
+                {
+                    var guard = CaptureUtil.ValidateOutputPath(outputDir);
+                    if (guard != null)
+                        return guard;
+                }
 
                 var prefix = parameters["prefix"]?.ToString();
                 if (string.IsNullOrEmpty(prefix))
@@ -58,9 +63,6 @@ namespace Unimancer
 
                 var width = CaptureUtil.IntOr(parameters, "width", 1024);
                 var height = CaptureUtil.IntOr(parameters, "height", 1024);
-
-                if (!Directory.Exists(outputDir))
-                    Directory.CreateDirectory(outputDir);
 
                 var bounds = ComputeSceneBounds();
                 if (bounds == null)
@@ -73,6 +75,7 @@ namespace Unimancer
                     radius = 1f;
 
                 var paths = new List<string>();
+                var images = new JArray();
 
                 // Create one throwaway camera and reuse it for every angle.
                 var camGo = new GameObject("__UnimancerMultiAngleCam");
@@ -97,9 +100,14 @@ namespace Unimancer
                         cam.transform.position = b.center + d * distance;
                         cam.transform.LookAt(b.center, Vector3.up);
 
-                        var path = Path.Combine(outputDir, $"{prefix}_{name}.png");
-                        CaptureUtil.RenderCameraToPng(cam, width, height, path);
-                        paths.Add(path);
+                        var png = CaptureUtil.RenderCameraToPngBytes(cam, width, height);
+                        images.Add(new JObject { ["name"] = name, ["base64"] = Convert.ToBase64String(png) });
+                        if (!string.IsNullOrEmpty(outputDir))
+                        {
+                            var path = Path.Combine(outputDir, $"{prefix}_{name}.png");
+                            CaptureUtil.WritePng(path, png);
+                            paths.Add(path);
+                        }
                     }
                 }
                 finally
@@ -110,8 +118,9 @@ namespace Unimancer
 
                 return new JObject
                 {
+                    ["images"] = images,
                     ["paths"] = new JArray(paths.Cast<object>().ToArray()),
-                    ["count"] = paths.Count,
+                    ["count"] = images.Count,
                 };
             }
             catch (Exception e)

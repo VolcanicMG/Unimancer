@@ -53,18 +53,51 @@ export class UnityConnection {
   ensureConnected() {
     if (this.socket && !this.socket.destroyed) return Promise.resolve();
     if (this.connecting) return this.connecting;
+    this.connecting = this._connectWithRetry(10, 500).finally(() => { this.connecting = null; });
+    return this.connecting;
+  }
 
-    this.connecting = new Promise((resolve, reject) => {
+  /**
+   * Connect with bounded retry/backoff so a request that lands during the Editor
+   * bridge's restart window (e.g. right after a script recompile, while the bridge
+   * re-binds port 8090) waits for it to come back instead of hard-failing the turn.
+   * @private
+   * @param {number} attempts - max connection attempts.
+   * @param {number} delayMs - delay between attempts.
+   * @returns {Promise<void>}
+   */
+  async _connectWithRetry(attempts, delayMs) {
+    let lastErr;
+    for (let i = 1; i <= attempts; i++) {
+      try { return await this._connectOnce(); }
+      catch (e) {
+        lastErr = e;
+        if (i < attempts) await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    throw new Error(
+      `Unity connection failed at ${this.host}:${this.port} after ${attempts} tries: ${lastErr && lastErr.message}. ` +
+      `Is the Unity Editor open with the Unimancer package, and the bridge listening (Window -> Unimancer -> Setup)?`,
+    );
+  }
+
+  /**
+   * One connection attempt. Resolves when connected; rejects on connect error only
+   * (post-connect errors are handled by the "close" cleanup, not this promise).
+   * @private
+   * @returns {Promise<void>}
+   */
+  _connectOnce() {
+    return new Promise((resolve, reject) => {
+      let settled = false;
       const s = net.createConnection({ host: this.host, port: this.port }, () => {
-        this.connecting = null;
+        settled = true;
+        try { s.setNoDelay(true); } catch { /* ignore */ }
         resolve();
       });
       s.setEncoding("utf8");
       s.on("data", (chunk) => this.onData(chunk));
-      s.on("error", (e) => {
-        this.connecting = null;
-        reject(new Error(`Unity connection failed at ${this.host}:${this.port}: ${e.message}. Is the Unity Editor open with the Unimancer package?`));
-      });
+      s.on("error", (e) => { if (!settled) { settled = true; reject(e); } });
       s.on("close", () => {
         this.socket = null;
         for (const [, p] of this.pending) {
@@ -75,7 +108,6 @@ export class UnityConnection {
       });
       this.socket = s;
     });
-    return this.connecting;
   }
 
   /**

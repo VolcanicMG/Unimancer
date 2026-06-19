@@ -14,7 +14,7 @@ export const captureGameView = {
   description:
     "Render the Unity Game view (Camera.main, or the first enabled camera) to a PNG at the given outputPath and return it as an image so the model can see it. width/height default to 1280x720. Errors if no camera exists. Requires the Unity Editor open with the Unimancer package.",
   inputSchema: {
-    outputPath: z.string().describe("Absolute output file path for the PNG."),
+    outputPath: z.string().optional().describe("Optional absolute path to ALSO save the PNG Editor-side. Omit it to just get the image inline (recommended — avoids WSL/Windows path mismatches)."),
     width: z.number().optional().describe("Render width in pixels; defaults to 1280."),
     height: z.number().optional().describe("Render height in pixels; defaults to 720."),
   },
@@ -26,8 +26,10 @@ export const captureGameView = {
   async handler(args, ctx) {
     try {
       const r = await ctx.unity.request("capture_game_view", args);
-      const b64 = (await readFile(r.path)).toString("base64");
-      return image(b64, "image/png", `Saved ${r.path} (${r.width}x${r.height})`);
+      // Prefer the inline bytes Unity sends back; fall back to reading a saved file.
+      const b64 = r.base64 ?? (await readFile(r.path)).toString("base64");
+      const note = r.path ? `Saved ${r.path} (${r.width}x${r.height})` : `${r.width}x${r.height}`;
+      return image(b64, "image/png", note);
     } catch (e) {
       return err(e.message);
     }

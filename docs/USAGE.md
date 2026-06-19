@@ -49,6 +49,7 @@ event notifications. First-class **Android** tooling sets it apart.
    The bridge auto-starts on load. Check **Window → Unimancer → Setup** (it also
    writes a `.mcp.json` for you).
 4. **Verify**: the Unity Console shows `[Unimancer] Bridge listening on tcp://127.0.0.1:8090` and `Registered N tools.`
+   If it logs a bind/socket error instead, use **Window → Unimancer → Restart Bridge** (or the **Restart** button in Setup / the Chat header).
 
 > **WSL note:** if Unity is on Windows and your MCP client runs in WSL, enable WSL
 > *mirrored networking* so `127.0.0.1:8090` is shared, or run the Node server on
@@ -162,7 +163,8 @@ Requirements & notes:
   with any MCP client independently.
 
 **Rich editor features:**
-- **Reference objects** — drag GameObjects/assets into the chat, click **@ Reference** to
+- **Reference objects** — drag GameObjects/assets anywhere onto the chat window (a drop
+  overlay appears while dragging), click **@ Reference** to
   pick one, or **Use selection**. Attached objects appear as chips and are expanded into a
   `## Referenced Unity objects` context block (name, type, hierarchy/asset path, components)
   on send, so the agent gets real data.
@@ -178,6 +180,20 @@ Requirements & notes:
   "this project uses Unity Version Control, do not `git init`".
 - **Markdown rendering** — replies render headings, bold, lists, inline code, and fenced
   code blocks (each with **Copy** and **Save…** buttons).
+- **Version** — the package version (from `package.json`) is shown in the chat header
+  next to the title and at the top of **Settings**.
+- **Keep typing while it streams** — the input stays live during a reply; pressing **Send**
+  (it shows **Queue** while busy) queues a follow-up that auto-sends when the turn ends.
+- **Survives recompiles** — the chat reopens the last conversation and seeds `--resume` after
+  a script recompile / Play-mode toggle, so it picks up where it left off. The Editor bridge
+  also **self-heals** (re-binds port 8090 in the background) instead of staying down.
+- **Editor-aware** — the agent is told it's in the Unimancer Chat panel inside the Unity
+  Editor, with the live Unity version / project / active scene as context.
+- **Pick-an-answer buttons** — when the agent offers a choice (it emits a `unimancer:ask`
+  block), the panel renders the options as clickable buttons; you can still type a free reply.
+- **Send screenshots** — attach images via **📷 Capture** (renders the Game/Scene view),
+  **🖼 Image** (file picker), or by dragging image files onto the window; the agent views
+  them with the Read tool.
 - **Permission mode** (Settings) — **Auto-approve** (agent acts) or **Plan (propose only)**
   (`--permission-mode plan`: the agent proposes changes without executing — review, then
   switch to Auto and tell it to proceed).
@@ -204,6 +220,8 @@ Requirements & notes:
 |---|---|
 | No `Window → Unimancer` menu / no "Registered" log | C# didn't compile — check the Console for `CS####` errors |
 | `Unity connection failed at 127.0.0.1:8090` | Editor not open, or (WSL) localhost not shared — enable mirrored networking |
+| Chat/Setup shows **Bridge ○ not listening** | click **Restart Bridge** (menu or button). If it persists across restarts, an older Unity child (e.g. AI Assistant `relay_win.exe`) inherited the socket and squats 8090 — `netstat -ano \| findstr :8090`, end that PID, then Restart Bridge. The bridge now marks its socket non-inheritable to prevent this |
+| `capture_*` fails / PNG not found (WSL) | fixed — captures now return the image **inline** over the bridge and `outputPath`/`outputDir` are optional, so no shared file is needed. Update the embedded package + restart the MCP client to pick it up |
 | `runtime_*` tools time out | the game isn't running (enter Play mode / dev build), or forward :8091 on device |
 | `instanceID` looks like a huge number | it's a string (EntityId, exceeds JS int range) — target objects by **path** or pass the id back as a string |
 | Changed C# but no effect | Unity recompiles on focus — alt-tab to the Editor; restart the MCP client for Node-side changes |

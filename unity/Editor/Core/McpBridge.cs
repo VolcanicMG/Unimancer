@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -32,9 +33,11 @@ namespace Unimancer
     public static class McpBridge
     {
         private const int Port = 8090;
+        private const int BindRetries = 5;          // rebinds can race a prior domain's socket release
         private static readonly Dictionary<string, McpToolBase> Tools = new();
         private static readonly ConcurrentQueue<Action> MainThread = new();
         private static TcpListener _listener;
+        private static int _generation;             // bumped on every Stop()/Start() so stale accept loops exit
 
         /// <summary>A connected client + a lock serializing writes to its stream.</summary>
         private sealed class Client
@@ -54,9 +57,28 @@ namespace Unimancer
         {
             DiscoverTools();
             EditorApplication.update += PumpMainThread;
+            EditorApplication.update += SelfHeal;   // re-bind automatically once the port frees
             AssemblyReloadEvents.beforeAssemblyReload += Stop;
             EditorApplication.quitting += Stop;
             HookEvents();
+            // Defer the first bind a tick so a socket from the just-unloaded domain has a
+            // moment to release; SelfHeal keeps retrying after that until it succeeds.
+            EditorApplication.delayCall += Start;
+        }
+
+        // Throttle: while the bridge is down, retry the bind at most this often (seconds).
+        private static double _nextHealAt;
+
+        /// <summary>
+        /// Background watchdog: if the bridge isn't listening (e.g. the port was briefly
+        /// held right after a domain reload), keep retrying the bind so it recovers on its
+        /// own — no manual "Restart Bridge" needed. Runs on the Editor update tick.
+        /// </summary>
+        private static void SelfHeal()
+        {
+            if (IsListening) return;
+            if (EditorApplication.timeSinceStartup < _nextHealAt) return;
+            _nextHealAt = EditorApplication.timeSinceStartup + 3.0;
             Start();
         }
 
@@ -128,30 +150,104 @@ namespace Unimancer
 
         private static async void Start()
         {
+            int gen = ++_generation;
+            for (int attempt = 1; attempt <= BindRetries; attempt++)
+            {
+                if (gen != _generation) return; // superseded by a newer Stop()/Start()
+                try
+                {
+                    var listener = new TcpListener(IPAddress.Loopback, Port);
+                    // Exclusive bind (the Windows default). We deliberately do NOT set
+                    // SO_REUSEADDR: on Windows it permits port hijacking and, when another
+                    // socket already holds the port exclusively, makes bind fail with
+                    // AccessDenied instead of a clean "in use". The real fix for the
+                    // stale-socket wedge is disposing the listener on reload (see Stop),
+                    // plus the retry below for transient same-process reload races.
+                    listener.Start();
+                    // Stop Unity-spawned child processes (AI Assistant relay, AssetImport
+                    // workers, …) from inheriting this socket — otherwise they keep port
+                    // 8090 open after the Editor dies and strand it for the next session.
+                    TryDisableHandleInheritance(listener.Server);
+                    _listener = listener;
+                    IsListening = true;
+                    Debug.Log($"[Unimancer] Bridge listening on {BridgeUrl}");
+                    await AcceptLoop(listener, gen);
+                    return; // clean stop (reload/quit/restart)
+                }
+                catch (ObjectDisposedException) { return; } // stopped on reload/quit
+                catch (SocketException e)
+                {
+                    if (attempt < BindRetries)
+                    {
+                        Debug.Log($"[Unimancer] Bridge port {Port} busy ({e.SocketErrorCode}); retry {attempt}/{BindRetries - 1}…");
+                        try { await Task.Delay(400); } catch { }
+                        continue;
+                    }
+                    Debug.Log($"[Unimancer] Bridge port {Port} still busy after {BindRetries} tries ({e.Message}); will keep retrying in the background. " +
+                              "If it never recovers, a stale process may hold the port — use Window -> Unimancer -> Restart Bridge.");
+                }
+                catch (Exception e) { Debug.LogWarning($"[Unimancer] Bridge stopped: {e.Message}"); }
+                IsListening = false;
+                return;
+            }
+        }
+
+        /// <summary>Accept connections until this generation is superseded or the listener is disposed.</summary>
+        private static async Task AcceptLoop(TcpListener listener, int gen)
+        {
             try
             {
-                _listener = new TcpListener(IPAddress.Loopback, Port);
-                _listener.Start();
-                IsListening = true;
-                Debug.Log($"[Unimancer] Bridge listening on tcp://127.0.0.1:{Port}");
-                while (true)
+                while (gen == _generation)
                 {
-                    var client = await _listener.AcceptTcpClientAsync();
+                    var client = await listener.AcceptTcpClientAsync();
                     _ = HandleClient(client);
                 }
             }
             catch (ObjectDisposedException) { /* stopped on reload/quit */ }
-            catch (SocketException e) { Debug.LogWarning($"[Unimancer] Bridge socket error: {e.Message}"); }
-            catch (Exception e) { Debug.LogWarning($"[Unimancer] Bridge stopped: {e.Message}"); }
-            finally { IsListening = false; }
+            catch (Exception e) { Debug.LogWarning($"[Unimancer] Bridge accept loop ended: {e.Message}"); }
+            finally { if (gen == _generation) IsListening = false; }
         }
 
         private static void Stop()
         {
-            try { _listener?.Stop(); } catch { }
+            _generation++; // supersede any in-flight Start()/AcceptLoop
+            var l = _listener;
             _listener = null;
             IsListening = false;
-            lock (Clients) Clients.Clear();
+            try { l?.Stop(); } catch { }
+            try { l?.Server?.Dispose(); } catch { } // force-release the OS socket (Mono's Stop() may leak the handle)
+            lock (Clients)
+            {
+                foreach (var c in Clients) { try { lock (c.Lock) c.Writer?.Dispose(); } catch { } }
+                Clients.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Stop then re-start the bridge so a wedged or port-occupied bridge can recover
+        /// without restarting the whole Editor. Exposed via the menu and the Setup window.
+        /// </summary>
+        [MenuItem("Window/Unimancer/Restart Bridge")]
+        public static void Restart()
+        {
+            Debug.Log("[Unimancer] Restarting bridge…");
+            Stop();
+            Start();
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
+        private const uint HANDLE_FLAG_INHERIT = 0x1;
+
+        /// <summary>
+        /// Clear the inheritable flag on the listener socket (Windows). Without this,
+        /// processes Unity launches inherit the handle and can hold port 8090 open after
+        /// the Editor exits, stranding it for the next session. Harmless no-op elsewhere.
+        /// </summary>
+        private static void TryDisableHandleInheritance(Socket socket)
+        {
+            try { SetHandleInformation(socket.Handle, HANDLE_FLAG_INHERIT, 0); }
+            catch { /* non-Windows or restricted — best effort */ }
         }
 
         /// <summary>Read newline-delimited JSON requests from a client and reply.</summary>
