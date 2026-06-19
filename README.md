@@ -2,7 +2,7 @@
 
 **Command the Unity engine with AI.** Unimancer is a Model Context Protocol (MCP)
 server that bridges AI assistants (Claude, Cursor, etc.) to the Unity Editor —
-with **93 tools** spanning the core editor surface *plus* first-class
+with **97 tools** spanning the core editor surface *plus* first-class
 **Android build & device tooling** that other Unity MCP servers don't have.
 
 ```
@@ -90,7 +90,7 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 - [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
 - [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
 
-## Tools (93)
+## Tools (97)
 
 | Group | Count | Needs Unity? | Examples |
 |---|---|---|---|

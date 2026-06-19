@@ -1,7 +1,7 @@
 # Using Unimancer
 
 Unimancer is an MCP server that lets an AI assistant drive the Unity Editor — and
-a running game — with **93 tools** across 14 groups, plus live resources and
+a running game — with **97 tools** across 14 groups, plus live resources and
 event notifications. First-class **Android** tooling sets it apart.
 
 ---
@@ -76,7 +76,7 @@ Tools are named `group_action`. Just ask in natural language — the client pick
 | **navmesh** | 4 | "bake the navmesh", "bake lighting" |
 | **animation** | 5 | "create a clip", "add a position curve", "inspect the Animator on Boss" |
 | **batch** | 1 | run many tools in one call (see §6) |
-| **runtime** | 7 | drive a *running* game (see §5) |
+| **runtime** | 11 | drive a *running* game (see §5) |
 
 ---
 
@@ -135,7 +135,9 @@ while the game is running:
 
 Tools: `runtime_scene_info`, `runtime_find_objects`, `runtime_get_component`,
 `runtime_set_component_property`, `runtime_call_method` (invoke a method on a live
-component — "drive the game"), `runtime_set_timescale` (pause/slow/speed), `runtime_log_tail`.
+component — "drive the game"), `runtime_set_timescale` (pause/slow/speed), `runtime_log_tail`,
+`runtime_ui_list` (discover clickable uGUI elements), `runtime_ui_click` (click a UI element to
+test interactions), `runtime_camera_control` (pan/move/rotate/zoom the camera to look around), `runtime_pointer_drag` (swipe/drag a ScrollRect or IDragHandler to pan/scroll).
 
 Example: "set timeScale to 0.2, find the Player, and call TakeDamage(10) on its Health component."
 

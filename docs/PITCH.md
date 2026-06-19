@@ -33,7 +33,7 @@ push/pull), build & config (APK/**AAB**, player settings, **IL2CPP/ARM64**,
 management. Ship-to-phone is a first-class workflow, not an afterthought.
 
 ### 2. Editor **and** runtime — including on a device
-85 Editor tools **plus** 7 runtime tools that drive a *live game*. Pause time, find
+85 Editor tools **plus** 11 runtime tools that drive a *live game*. Pause time, find
 live objects, read/poke components, and **call methods on a running game** — in Play
 mode, a desktop dev build, or **a Development build on an Android phone** (reachable
 via `adb forward`). Editor + runtime + Android together is unique to Unimancer.
@@ -76,7 +76,7 @@ rides a **self-healing bridge**. No external editor or API key required.
 | Android device control (adb/logcat/screenshot) | ✅ 23 tools | ❌ | ❌ |
 | Android build (APK/AAB, keystore, AGP 9) | ✅ | partial | ❌ |
 | Drive a *running* game | ✅ (Play + dev build + device) | ❌ | ✅ (no mobile) |
-| Total tools | **93** | ~15–86 | ~20 |
+| Total tools | **97** | ~15–86 | ~20 |
 | Batch / resources / notifications | ✅ all three | some | some |
 | Image capture returned to the model | ✅ | some | rare |
 | In-Editor AI chat (no API key, on subscription) | ✅ | ❌ | ❌ |
