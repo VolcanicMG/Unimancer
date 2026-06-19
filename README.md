@@ -68,8 +68,21 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
   window WSL-wraps the spawn (toggle in **Setup**). Keep `ANTHROPIC_API_KEY` unset so
   Claude Code uses your subscription.
 - Reuses the Node server path you set in **Window → Unimancer → Setup**.
-- Multi-turn via `--resume`; tool calls are shown inline. *Phase 2* adds @-referencing
-  of Editor objects/assets.
+- **Multi-turn & resumable** — continues via `--resume`, reopens the last chat and
+  resumes after a recompile. Optional **"Keep chat alive in Play mode"** (Settings)
+  skips the domain reload so entering Play doesn't interrupt a turn.
+- **Keep typing while it streams** — Send queues follow-ups that auto-send when the turn
+  ends; tool calls show inline with their target, and Edit/Write show a red/green **diff**
+  like the normal console. A live **"Working… / Worked for Ns"** timer shows turn time.
+- **Reference & see your project** — drag GameObjects/assets in, **@ Reference**, or
+  **Use selection** (auto-syncable); the agent gets the live scene/selection as context
+  and renders clickable `[[unity:…]]` handles back.
+- **Screenshots** — attach via Capture (Game/Scene view), file picker, image drag, or
+  **Ctrl/Cmd+V**; the agent views them with the Read tool.
+- **Choices as buttons** — when the agent offers options it renders clickable buttons
+  (you can still type a free reply).
+- **Self-healing bridge** — the Editor bridge re-binds itself after reloads, with a
+  **Restart Bridge** menu item / button if ever needed.
 
 ## Docs
 

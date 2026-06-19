@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using Newtonsoft.Json.Linq;
 using Debug = UnityEngine.Debug;
 
@@ -23,7 +24,9 @@ namespace Unimancer
         /// <summary>A tool returned an image; Text holds the base64 PNG/JPEG data.</summary>
         Image,
         /// <summary>The claude process exited; Text holds a short status.</summary>
-        Exit
+        Exit,
+        /// <summary>A file Edit/Write/MultiEdit; Text holds a prefixed diff (- removed, + added, § header).</summary>
+        Diff
     }
 
     /// <summary>One parsed event from the stream-json output, consumed on the main thread.</summary>
@@ -291,7 +294,11 @@ namespace Unimancer
                     if (content != null)
                         foreach (var block in content)
                             if ((string)block["type"] == "tool_use")
+                            {
                                 Enqueue(ChatEventKind.ToolUse, SummarizeToolUse(block), false);
+                                var diff = BuildDiff(block);
+                                if (diff != null) Enqueue(ChatEventKind.Diff, diff, false);
+                            }
                     ScanForImages(content); // assistant may embed images directly
                     break;
 
@@ -359,6 +366,58 @@ namespace Unimancer
                           || arg.Contains("/") || arg.Contains("\\");
             arg = isPath ? ShortenPath(arg) : Shorten(arg.Replace('\n', ' ').Replace('\r', ' '), 60);
             return name + " " + arg;
+        }
+
+        /// <summary>
+        /// Build a red/green diff for an Edit/Write/MultiEdit tool call so the chat shows
+        /// the actual change (like the normal Claude console), not just "Edit file". Lines
+        /// are prefixed: "- " removed, "+ " added, "§ " a file/section header. Capped so a
+        /// huge write doesn't flood the transcript. Returns null for non-edit tools.
+        /// </summary>
+        private static string BuildDiff(JToken block)
+        {
+            var name = (string)block["name"];
+            var input = block["input"] as JObject;
+            if (input == null) return null;
+            if (name != "Edit" && name != "Write" && name != "MultiEdit") return null;
+
+            var sb = new StringBuilder();
+            int count = 0;
+            const int MaxLines = 80;
+            void AddLines(string text, char sign)
+            {
+                if (text == null) return;
+                foreach (var ln in text.Replace("\r\n", "\n").Split('\n'))
+                {
+                    if (count >= MaxLines) { sb.Append("§ …(truncated)\n"); return; }
+                    sb.Append(sign).Append(' ').Append(ln).Append('\n');
+                    count++;
+                }
+            }
+
+            var fp = ShortenPath((string)input["file_path"] ?? "");
+            if (name == "Write")
+            {
+                sb.Append("§ ").Append(fp).Append("  (write)\n");
+                AddLines((string)input["content"], '+');
+            }
+            else if (name == "MultiEdit")
+            {
+                sb.Append("§ ").Append(fp).Append("  (multi-edit)\n");
+                if (input["edits"] is JArray edits)
+                    foreach (var ed in edits)
+                    {
+                        AddLines((string)ed["old_string"], '-');
+                        AddLines((string)ed["new_string"], '+');
+                    }
+            }
+            else // Edit
+            {
+                sb.Append("§ ").Append(fp).Append('\n');
+                AddLines((string)input["old_string"], '-');
+                AddLines((string)input["new_string"], '+');
+            }
+            return sb.ToString();
         }
 
         /// <summary>Trim a path to its last two segments (e.g. "…/Chat/Foo.cs") for compact display.</summary>

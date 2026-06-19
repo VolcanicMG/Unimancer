@@ -150,6 +150,12 @@ namespace Unimancer
 
         private static async void Start()
         {
+            // Release any listener we still hold BEFORE (re)binding. Without this, a SelfHeal
+            // retry builds a second listener while our own previous one is still bound and
+            // hits AddressAlreadyInUse indefinitely — the "I have to click Restart Bridge"
+            // symptom (Restart worked only because it calls Stop() first).
+            DisposeListener();
+
             int gen = ++_generation;
             for (int attempt = 1; attempt <= BindRetries; attempt++)
             {
@@ -157,17 +163,12 @@ namespace Unimancer
                 try
                 {
                     var listener = new TcpListener(IPAddress.Loopback, Port);
-                    // Exclusive bind (the Windows default). We deliberately do NOT set
-                    // SO_REUSEADDR: on Windows it permits port hijacking and, when another
-                    // socket already holds the port exclusively, makes bind fail with
-                    // AccessDenied instead of a clean "in use". The real fix for the
-                    // stale-socket wedge is disposing the listener on reload (see Stop),
-                    // plus the retry below for transient same-process reload races.
-                    listener.Start();
-                    // Stop Unity-spawned child processes (AI Assistant relay, AssetImport
-                    // workers, …) from inheriting this socket — otherwise they keep port
-                    // 8090 open after the Editor dies and strand it for the next session.
+                    // Mark the socket NON-INHERITABLE *before* binding so Unity-spawned child
+                    // processes (AI Assistant relay_win.exe, AssetImport workers) can't inherit
+                    // the handle and keep port 8090 open across domain reloads. Exclusive bind,
+                    // no SO_REUSEADDR (wrong on Windows); the retry below covers transient races.
                     TryDisableHandleInheritance(listener.Server);
+                    listener.Start();
                     _listener = listener;
                     IsListening = true;
                     Debug.Log($"[Unimancer] Bridge listening on {BridgeUrl}");
@@ -206,6 +207,16 @@ namespace Unimancer
             catch (ObjectDisposedException) { /* stopped on reload/quit */ }
             catch (Exception e) { Debug.LogWarning($"[Unimancer] Bridge accept loop ended: {e.Message}"); }
             finally { if (gen == _generation) IsListening = false; }
+        }
+
+        /// <summary>Stop + dispose the current listener (releasing its OS socket) if any.</summary>
+        private static void DisposeListener()
+        {
+            var l = _listener;
+            _listener = null;
+            if (l == null) return;
+            try { l.Stop(); } catch { }
+            try { l.Server?.Dispose(); } catch { }
         }
 
         private static void Stop()

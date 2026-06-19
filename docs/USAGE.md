@@ -194,6 +194,13 @@ Requirements & notes:
 - **Send screenshots** — attach images via **📷 Capture** (renders the Game/Scene view),
   **🖼 Image** (file picker), or by dragging image files onto the window; the agent views
   them with the Read tool.
+- **Edit diffs** — when the agent uses the built-in Edit/Write/MultiEdit tools, the panel
+  shows a red/green diff of the change (capped for large writes), like the normal console.
+  (Unity-side script edits made via MCP tools show the tool line, not a diff.)
+- **Keep chat alive in Play mode** (Settings toggle) — entering Play normally triggers a
+  domain reload that interrupts the chat; this disables that reload so a turn keeps running.
+  Tradeoff: statics/events aren't reset between Play sessions (a script recompile still
+  reloads, and the chat auto-resumes then).
 - **Permission mode** (Settings) — **Auto-approve** (agent acts) or **Plan (propose only)**
   (`--permission-mode plan`: the agent proposes changes without executing — review, then
   switch to Auto and tell it to proceed).

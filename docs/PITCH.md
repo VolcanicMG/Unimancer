@@ -58,6 +58,15 @@ Uses a raw **TCP** line protocol — not WebSocket — because Unity's Mono runt
 can't perform server-side WebSocket upgrades (a trap that bites HttpListener-based
 implementations). Domain-reload-safe, auto-reconnecting, one-command setup.
 
+### 6. A real in-Editor AI chat — on your subscription
+A chat panel **inside Unity** (Window → Unimancer → Chat) drives the `claude` CLI
+headless, so it runs on your **Claude subscription, not a pay-per-token API key**, and
+inherits the full tool surface. It streams replies with inline **Edit/Write diffs**,
+takes **screenshots** (capture / paste / drag) the agent can actually see, renders the
+agent's questions as **clickable choices**, lets you **keep typing** (follow-ups queue
+while it works), **survives Play mode** (optional) and recompiles (auto-resume), and
+rides a **self-healing bridge**. No external editor or API key required.
+
 ---
 
 ## At a glance
@@ -70,6 +79,7 @@ implementations). Domain-reload-safe, auto-reconnecting, one-command setup.
 | Total tools | **93** | ~15–86 | ~20 |
 | Batch / resources / notifications | ✅ all three | some | some |
 | Image capture returned to the model | ✅ | some | rare |
+| In-Editor AI chat (no API key, on subscription) | ✅ | ❌ | ❌ |
 | Roslyn syntax validation | ✅ | some | ❌ |
 | Runtime deps | **2** (pinned, guarded) | varies | varies |
 

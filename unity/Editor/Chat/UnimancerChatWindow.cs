@@ -20,7 +20,7 @@ namespace Unimancer
     public class UnimancerChatWindow : EditorWindow
     {
         /// <summary>Where a rendered line came from, for styling.</summary>
-        private enum Role { User, Assistant, Tool, System }
+        private enum Role { User, Assistant, Tool, System, Diff }
 
         private struct Line
         {
@@ -56,6 +56,8 @@ namespace Unimancer
         private string _sessionSig; // build-params signature; rebuild when Setup/settings change
         private string _input = "";
         private Vector2 _scroll;
+        private double _turnStart;      // EditorApplication.timeSinceStartup when the current turn began
+        private double _lastTimerTick;  // throttles the live "Working…" repaint
         private Vector2 _inputScroll; // vertical scroll inside the fixed-height input box
         private int _streamIndex = -1;     // index of the assistant line being streamed into
         private bool _gotDeltas;           // did this turn stream any text?
@@ -194,12 +196,11 @@ namespace Unimancer
         /// <summary>Pull queued stream events onto the main thread and update the transcript.</summary>
         private void Drain()
         {
-            // A background clipboard grab finished → attach the saved image.
+            // A background clipboard grab finished → attach the saved image (size-guarded).
             if (_pendingPaste != null)
             {
-                if (!_shots.Contains(_pendingPaste)) _shots.Add(_pendingPaste);
+                AddShot(_pendingPaste);
                 _pendingPaste = null;
-                Repaint();
             }
             if (_session == null) return;
             bool changed = false;
@@ -216,6 +217,10 @@ namespace Unimancer
                         _lines.Add(new Line { Role = Role.Tool, Text = "⚙ " + ev.Text });
                         _streamIndex = -1; // next text starts a fresh assistant line after a tool call
                         break;
+                    case ChatEventKind.Diff:
+                        _lines.Add(new Line { Role = Role.Diff, Text = ev.Text });
+                        _streamIndex = -1;
+                        break;
                     case ChatEventKind.Result:
                         if (!_gotDeltas && !string.IsNullOrEmpty(ev.Text))
                             AppendToStream(ev.Text);
@@ -229,6 +234,7 @@ namespace Unimancer
                         break;
                     case ChatEventKind.Exit:
                         if (ev.IsError) _lines.Add(new Line { Role = Role.System, Text = "⚠ " + ev.Text });
+                        _lines.Add(new Line { Role = Role.Tool, Text = "✦ Worked for " + FormatDuration(EditorApplication.timeSinceStartup - _turnStart) });
                         break;
                     case ChatEventKind.Image:
                         var tex = DecodeTexture(ev.Text);
@@ -243,6 +249,12 @@ namespace Unimancer
                 _queued.RemoveAt(0);
                 DispatchTurn(next);
                 changed = true;
+            }
+            // Keep the inline "Working…" timer updating even when no events arrive.
+            if (_session != null && _session.IsBusy && EditorApplication.timeSinceStartup - _lastTimerTick >= 0.5)
+            {
+                _lastTimerTick = EditorApplication.timeSinceStartup;
+                Repaint();
             }
             if (changed)
             {
@@ -360,11 +372,6 @@ namespace Unimancer
                 var vStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
                 GUILayout.Label("v" + Version, vStyle);
                 GUILayout.FlexibleSpace();
-                bool busy = _session != null && _session.IsBusy;
-                var prev = GUI.color;
-                GUI.color = busy ? new Color(1f, 0.85f, 0.4f) : new Color(0.6f, 0.6f, 0.6f);
-                EditorGUILayout.LabelField(busy ? "● thinking…" : "○ idle", GUILayout.Width(90));
-                GUI.color = prev;
             }
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -438,6 +445,35 @@ namespace Unimancer
                 EditorPrefs.SetString(PrefPermMode, _permMode ?? "acceptEdits");
                 _session = null; // rebuild with new settings on next send
             }
+
+            // Keep the chat alive through Play mode by skipping Unity's domain reload —
+            // a domain reload wipes the C# heap and kills the chat process mid-turn.
+            EditorGUILayout.Space(2);
+            bool survive = EditorSettings.enterPlayModeOptionsEnabled
+                           && (EditorSettings.enterPlayModeOptions & EnterPlayModeOptions.DisableDomainReload) != 0;
+            bool newSurvive = EditorGUILayout.ToggleLeft(
+                new GUIContent("Keep chat alive in Play mode",
+                    "Disables Unity's domain reload when entering Play, so the chat (and its process) keep running instead of being interrupted. Side effect: static fields and event subscriptions are NOT reset between Play sessions — your game code must handle that."),
+                survive);
+            if (newSurvive != survive)
+            {
+                if (newSurvive)
+                {
+                    EditorSettings.enterPlayModeOptionsEnabled = true;
+                    EditorSettings.enterPlayModeOptions |= EnterPlayModeOptions.DisableDomainReload;
+                }
+                else
+                {
+                    EditorSettings.enterPlayModeOptions &= ~EnterPlayModeOptions.DisableDomainReload;
+                    if (EditorSettings.enterPlayModeOptions == EnterPlayModeOptions.None)
+                        EditorSettings.enterPlayModeOptionsEnabled = false;
+                }
+            }
+            if (newSurvive)
+                EditorGUILayout.HelpBox(
+                    "Domain reload on Play is OFF, so the chat survives Play. But statics/events now persist between Play "
+                    + "sessions — reset them yourself (e.g. [RuntimeInitializeOnLoadMethod]) if your game relies on fresh state. "
+                    + "A script recompile still reloads (the chat auto-resumes then).", MessageType.Info);
         }
 
         private void DrawTranscript()
@@ -464,13 +500,31 @@ namespace Unimancer
                 {
                     DrawRichMessage(line.Role, line.Text, style);
                 }
+                else if (line.Role == Role.Diff)
+                {
+                    DrawDiff(line.Text);
+                }
                 else
                 {
                     EditorGUILayout.LabelField(prefix + EscapeForRichText(line.Text), style);
                 }
                 EditorGUILayout.Space(4);
             }
+
+            // Inline live status (replaces the old header "thinking" label).
+            if (_session != null && _session.IsBusy)
+            {
+                var work = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(1f, 0.85f, 0.4f) } };
+                EditorGUILayout.LabelField("✦ Working… " + FormatDuration(EditorApplication.timeSinceStartup - _turnStart), work);
+            }
             EditorGUILayout.EndScrollView();
+        }
+
+        /// <summary>Human-readable duration: "8s" or "1m 12s".</summary>
+        private static string FormatDuration(double seconds)
+        {
+            int s = Mathf.Max(0, Mathf.RoundToInt((float)seconds));
+            return s < 60 ? s + "s" : (s / 60) + "m " + (s % 60) + "s";
         }
 
         /// <summary>Draw an inline image, scaled to fit the window width (capped height).</summary>
@@ -483,6 +537,26 @@ namespace Unimancer
             var r = GUILayoutUtility.GetRect(w, h);
             GUI.DrawTexture(r, tex, ScaleMode.ScaleToFit);
             EditorGUILayout.Space(4);
+        }
+
+        /// <summary>Render a prefixed diff (from ClaudeCliSession.BuildDiff) as a colored block.</summary>
+        /// <param name="raw">Lines prefixed "- " removed / "+ " added / "§ " header.</param>
+        private void DrawDiff(string raw)
+        {
+            var sb = new StringBuilder();
+            foreach (var ln in (raw ?? "").Split('\n'))
+            {
+                string color = null;
+                if (ln.StartsWith("+")) color = "#6ac46a";        // added → green
+                else if (ln.StartsWith("-")) color = "#e06c6c";   // removed → red
+                else if (ln.StartsWith("§")) color = "#9aa0a6";   // header → grey
+                var e = EscapeForRichText(ln);
+                if (color != null) sb.Append("<color=").Append(color).Append('>').Append(e).Append("</color>\n");
+                else sb.Append(e).Append('\n');
+            }
+            var style = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true, fontSize = 11 };
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                EditorGUILayout.LabelField(sb.ToString().TrimEnd('\n'), style);
         }
 
         private static readonly Regex RefRx = new Regex(@"\[\[unity:(.+?)\]\]", RegexOptions.Compiled);
@@ -804,6 +878,7 @@ namespace Unimancer
         {
             _askQuestion = null;
             _askOptions.Clear();
+            _turnStart = EditorApplication.timeSinceStartup;
             var s = EnsureSession();
             if (string.IsNullOrEmpty(_convId))
             {
@@ -813,8 +888,10 @@ namespace Unimancer
             _lines.Add(new Line { Role = Role.User, Text = p.Display });
             _streamIndex = -1;
             _gotDeltas = false;
+            _scroll.y = float.MaxValue; // jump to the bottom on send even if scrolled up
             PersistCurrent();
             s.Send(p.Prompt);
+            Repaint();
         }
 
         /// <summary>Build the prompt sent to claude: user text + a context block for attached refs.</summary>
@@ -936,7 +1013,7 @@ namespace Unimancer
                     // OS file drags carry no objectReferences — treat image paths as screenshots.
                     if (DragAndDrop.objectReferences.Length == 0)
                         foreach (var p in DragAndDrop.paths)
-                            if (IsImagePath(p) && !_shots.Contains(p)) _shots.Add(p);
+                            if (IsImagePath(p)) AddShot(p);
                     _dragHover = false;
                     e.Use();
                     Repaint();
@@ -962,17 +1039,29 @@ namespace Unimancer
 
                 var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "unimancer-shot-" + Guid.NewGuid().ToString("N") + ".png");
                 CaptureUtil.RenderCameraToPng(cam, 1280, 720, path);
-                _shots.Add(path);
-                Repaint();
+                AddShot(path);
             }
             catch (Exception e) { Debug.LogWarning("[Unimancer] Capture failed: " + e.Message); }
+        }
+
+        /// <summary>Attach an image path, skipping blank/empty grabs (e.g. an empty clipboard image).</summary>
+        /// <param name="path">Absolute image file path.</param>
+        private void AddShot(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return;
+                if (new System.IO.FileInfo(path).Length < 1024) return; // a real screenshot is far bigger; skip blanks
+                if (!_shots.Contains(path)) { _shots.Add(path); Repaint(); }
+            }
+            catch { /* ignore unreadable path */ }
         }
 
         /// <summary>Open a file picker and attach an image to send with the next message.</summary>
         private void AttachImageFile()
         {
             var path = EditorUtility.OpenFilePanel("Attach image", "", "png,jpg,jpeg");
-            if (!string.IsNullOrEmpty(path) && !_shots.Contains(path)) { _shots.Add(path); Repaint(); }
+            if (!string.IsNullOrEmpty(path)) AddShot(path);
         }
 
         /// <summary>
@@ -989,7 +1078,7 @@ namespace Unimancer
                 var outPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "unimancer-paste-" + Guid.NewGuid().ToString("N") + ".png");
                 var ps = "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; " +
                          "$i=[System.Windows.Forms.Clipboard]::GetImage(); " +
-                         "if($i){$i.Save('" + outPath + "',[System.Drawing.Imaging.ImageFormat]::Png)}";
+                         "if($i -and $i.Width -gt 8 -and $i.Height -gt 8){$i.Save('" + outPath + "',[System.Drawing.Imaging.ImageFormat]::Png)}";
                 var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe", "-NoProfile -STA -Command \"" + ps + "\"")
                 {
                     UseShellExecute = false,
