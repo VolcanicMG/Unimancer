@@ -26,7 +26,9 @@ namespace Unimancer
         /// <summary>The claude process exited; Text holds a short status.</summary>
         Exit,
         /// <summary>A file Edit/Write/MultiEdit; Text holds a prefixed diff (- removed, + added, § header).</summary>
-        Diff
+        Diff,
+        /// <summary>Per-turn token/cost usage parsed from the result event (InTok/OutTok/CacheTok/Cost).</summary>
+        Usage
     }
 
     /// <summary>One parsed event from the stream-json output, consumed on the main thread.</summary>
@@ -35,6 +37,10 @@ namespace Unimancer
         public ChatEventKind Kind;
         public string Text;
         public bool IsError;
+        public int InTok;      // input tokens (Usage)
+        public int OutTok;     // output tokens (Usage)
+        public int CacheTok;   // cache read+creation tokens (Usage)
+        public double Cost;     // total_cost_usd for the turn (Usage)
     }
 
     /// <summary>
@@ -311,6 +317,15 @@ namespace Unimancer
                     SessionId = (string)o["session_id"] ?? SessionId;
                     var isErr = (bool?)o["is_error"] ?? false;
                     Enqueue(ChatEventKind.Result, (string)o["result"] ?? "", isErr);
+                    var usage = o["usage"];
+                    Events.Enqueue(new ChatEvent
+                    {
+                        Kind = ChatEventKind.Usage,
+                        InTok = (int?)usage?["input_tokens"] ?? 0,
+                        OutTok = (int?)usage?["output_tokens"] ?? 0,
+                        CacheTok = ((int?)usage?["cache_read_input_tokens"] ?? 0) + ((int?)usage?["cache_creation_input_tokens"] ?? 0),
+                        Cost = (double?)o["total_cost_usd"] ?? 0,
+                    });
                     break;
             }
         }

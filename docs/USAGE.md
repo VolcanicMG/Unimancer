@@ -203,6 +203,9 @@ Requirements & notes:
   domain reload that interrupts the chat; this disables that reload so a turn keeps running.
   Tradeoff: statics/events aren't reset between Play sessions (a script recompile still
   reloads, and the chat auto-resumes then).
+- **Usage/cost** — each turn shows tokens used (in↑/out↓) and per-turn cost on its
+  "Worked for" line; a running session total (Σ tokens · $) sits in the header. Parsed
+  from the `result` event's `usage`/`total_cost_usd` (resets when the window reloads).
 - **Permission mode** (Settings) — **Auto-approve** (agent acts) or **Plan (propose only)**
   (`--permission-mode plan`: the agent proposes changes without executing — review, then
   switch to Auto and tell it to proceed).

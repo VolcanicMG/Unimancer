@@ -58,6 +58,9 @@ namespace Unimancer
         private Vector2 _scroll;
         private double _turnStart;      // EditorApplication.timeSinceStartup when the current turn began
         private double _lastTimerTick;  // throttles the live "Working…" repaint
+        private long _sessTokIn, _sessTokOut; // running token totals for this window session
+        private double _sessCost;             // running cost total ($) for this window session
+        private string _lastTurnUsage = "";   // per-turn usage suffix appended to the "Worked for" line
         private Vector2 _inputScroll; // vertical scroll inside the fixed-height input box
         private int _streamIndex = -1;     // index of the assistant line being streamed into
         private bool _gotDeltas;           // did this turn stream any text?
@@ -221,6 +224,13 @@ namespace Unimancer
                         _lines.Add(new Line { Role = Role.Diff, Text = ev.Text });
                         _streamIndex = -1;
                         break;
+                    case ChatEventKind.Usage:
+                        _sessTokIn += ev.InTok + ev.CacheTok;
+                        _sessTokOut += ev.OutTok;
+                        _sessCost += ev.Cost;
+                        _lastTurnUsage = "   ·   " + FormatTokens(ev.InTok + ev.CacheTok) + "↑ " + FormatTokens(ev.OutTok) + "↓"
+                                         + (ev.Cost > 0 ? "  ·  $" + ev.Cost.ToString("0.000") : "");
+                        break;
                     case ChatEventKind.Result:
                         if (!_gotDeltas && !string.IsNullOrEmpty(ev.Text))
                             AppendToStream(ev.Text);
@@ -234,7 +244,8 @@ namespace Unimancer
                         break;
                     case ChatEventKind.Exit:
                         if (ev.IsError) _lines.Add(new Line { Role = Role.System, Text = "⚠ " + ev.Text });
-                        _lines.Add(new Line { Role = Role.Tool, Text = "✦ Worked for " + FormatDuration(EditorApplication.timeSinceStartup - _turnStart) });
+                        _lines.Add(new Line { Role = Role.Tool, Text = "✦ Worked for " + FormatDuration(EditorApplication.timeSinceStartup - _turnStart) + _lastTurnUsage });
+                        _lastTurnUsage = "";
                         break;
                     case ChatEventKind.Image:
                         var tex = DecodeTexture(ev.Text);
@@ -372,6 +383,12 @@ namespace Unimancer
                 var vStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
                 GUILayout.Label("v" + Version, vStyle);
                 GUILayout.FlexibleSpace();
+                if (_sessTokIn + _sessTokOut > 0)
+                {
+                    var uStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
+                    GUILayout.Label("Σ " + FormatTokens(_sessTokIn + _sessTokOut) + " tok"
+                        + (_sessCost > 0 ? " · $" + _sessCost.ToString("0.00") : ""), uStyle);
+                }
             }
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -526,6 +543,9 @@ namespace Unimancer
             int s = Mathf.Max(0, Mathf.RoundToInt((float)seconds));
             return s < 60 ? s + "s" : (s / 60) + "m " + (s % 60) + "s";
         }
+
+        /// <summary>Compact token count: 123 or 1.2k.</summary>
+        private static string FormatTokens(long n) => n < 1000 ? n.ToString() : (n / 1000.0).ToString("0.#") + "k";
 
         /// <summary>Draw an inline image, scaled to fit the window width (capped height).</summary>
         private void DrawImageLine(Texture2D tex)
