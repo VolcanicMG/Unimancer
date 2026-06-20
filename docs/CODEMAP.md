@@ -25,8 +25,9 @@ unimancer/
 │       ├── scripts/          Scripts, Materials, Shaders (Unity bridge)
 │       ├── editor/           Editor/Console/Packages/Tests (Unity bridge)
 │       ├── capture/          Visual capture → image results (Unity bridge)
-│       ├── ui/               uGUI authoring: ui_create / rect_transform_set / ui_dump (Unity bridge)
-│       └── sprites/          sprite_import / sprite_generate — TextureImporter + procedural PNGs (Unity bridge)
+│       ├── ui/               uGUI authoring: ui_create / rect_transform_set / ui_dump / ui_build_from_manifest (Unity bridge)
+│       ├── sprites/          sprite_import / sprite_generate — TextureImporter + procedural PNGs (Unity bridge)
+│       └── bridge/           HTML→sprite: html_inventory / html_export — Playwright DOM decompose → layer assets + manifest (Node-only)
 └── unity/                    ── the Unity UPM package (C#) ──
     ├── package.json          UPM manifest (com.unimancer.mcp)
     └── Editor/

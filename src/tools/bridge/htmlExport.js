@@ -1,0 +1,305 @@
+/**
+ * Tool: `html_export` — EXPORT pass of the HTML->Unity-sprite bridge.
+ *
+ * Same parse + decomposition as `html_inventory` (shared `decompose.js`), but it
+ * actually writes assets and a manifest the Unity side reassembles into a proper
+ * GameObject tree:
+ *
+ *   - sprite/icon layer, format=png  -> hide the OTHER (sibling/descendant text
+ *       & icon) layers, then Playwright-screenshots that element's box with
+ *       omitBackground:true at deviceScaleFactor=exportScale -> a transparent PNG
+ *       of JUST that frame/icon.
+ *   - sprite/icon layer, format=svg  -> extracts the element's inline <svg>
+ *       outerHTML and writes it VERBATIM as .svg (never rasterized).
+ *   - text layer                     -> NOT rasterized; recorded in the manifest
+ *       as a TMP node (text, font, size, weight, color, align).
+ *
+ * Assets land under outDir (default `Assets/UI/<componentName>/`), named
+ * `<component>__<layer>.png|svg`. A `manifest.json` per component captures the
+ * reassembly tree. Idempotent: the same inputs overwrite the same paths.
+ *
+ * Component-only: each detected widget becomes one reusable component with its
+ * own assets + manifest. There is no whole-screen export mode.
+ *
+ * Runs entirely in Node via Playwright — it does NOT touch the Unity Editor.
+ */
+import { z } from "zod";
+import { ok, err } from "../../core/types.js";
+import { pathToFileURL } from "node:url";
+import { resolve, join, isAbsolute } from "node:path";
+import { stat, mkdir, writeFile } from "node:fs/promises";
+import { withPage } from "./playwright.js";
+import { decomposePage } from "./decompose.js";
+
+/** @type {import("../../core/types.js").ToolDefinition} */
+export const htmlExport = {
+  name: "html_export",
+  description:
+    "EXPORT a Claude Design HTML mockup into reusable Unity components. Decomposes each detected widget into layer assets: " +
+    "sprite/icon PNG layers are screenshot per-element with siblings hidden and omitBackground (transparent) at deviceScaleFactor=exportScale; " +
+    "inline <svg> layers are written verbatim as .svg; text layers are recorded (not rasterized) as TMP nodes. " +
+    "Writes <component>__<layer>.png|svg plus a manifest.json under outDir (default 'Assets/UI/<componentName>/'). " +
+    "Idempotent (overwrites same paths). Feed the manifest to ui_build_from_manifest in Unity. " +
+    "Requires Playwright (a pinned dep — must be approved/installed).",
+  inputSchema: {
+    htmlPath: z.string().describe("Filesystem path to the self-contained HTML mockup file."),
+    outDir: z
+      .string()
+      .optional()
+      .describe("Base output dir for assets+manifest (default 'Assets/UI'; each component gets a '<componentName>' subfolder)."),
+    designWidth: z.number().positive().optional().describe("Normalize geometry to this design width in px."),
+    designHeight: z.number().positive().optional().describe("Normalize geometry to this design height in px."),
+    exportScale: z
+      .number()
+      .positive()
+      .optional()
+      .describe("deviceScaleFactor for PNG crispness (default 3 = 3x supersampled rasters)."),
+  },
+  /**
+   * @param {{htmlPath:string, outDir?:string, designWidth?:number, designHeight?:number, exportScale?:number}} args
+   * @param {import("../../core/types.js").ToolContext} _ctx - unused (no Unity round-trip).
+   * @returns {Promise<import("../../core/types.js").ToolResult>}
+   */
+  async handler(args, _ctx) {
+    try {
+      const htmlPath = resolve(args.htmlPath);
+      try {
+        await stat(htmlPath);
+      } catch {
+        return err(`HTML file not found: ${htmlPath}`);
+      }
+
+      const exportScale = args.exportScale ?? 3;
+      const baseOut = args.outDir ?? "Assets/UI";
+      // Resolve baseOut relative to CWD when not absolute; keep the original
+      // (likely 'Assets/...') string for the manifest so Unity gets a
+      // project-relative path it can AssetDatabase-import.
+      const absBaseOut = isAbsolute(baseOut) ? baseOut : resolve(baseOut);
+
+      const url = pathToFileURL(htmlPath).href;
+      const viewport =
+        args.designWidth && args.designHeight
+          ? { width: Math.round(args.designWidth), height: Math.round(args.designHeight) }
+          : undefined;
+
+      const written = [];
+
+      await withPage(
+        async (page) => {
+          await page.goto(url, { waitUntil: "networkidle" });
+          const decomp = await decomposePage(page, args.designWidth, args.designHeight);
+
+          // Export each component independently.
+          for (const comp of decomp.components) {
+            const compDir = join(absBaseOut, comp.name);
+            await mkdir(compDir, { recursive: true });
+            // Project-relative asset prefix used INSIDE the manifest (Unity side).
+            const relPrefix = `${baseOut.replace(/\\/g, "/")}/${comp.name}`;
+
+            // Build the manifest node tree while exporting each layer's asset.
+            const rootNode = await exportLayer(page, comp.node, comp.name, compDir, relPrefix, exportScale, written);
+
+            const manifest = {
+              meta: {
+                design: decomp.design,
+                exportScale,
+                source: htmlPath,
+              },
+              // Top-level "nodes" is the component's own tree as a single entry.
+              nodes: [rootNode],
+            };
+            const manifestPath = join(compDir, "manifest.json");
+            await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+            written.push(manifestPath);
+          }
+        },
+        { deviceScaleFactor: exportScale, viewport }
+      );
+
+      return ok(
+        JSON.stringify(
+          {
+            source: htmlPath,
+            outDir: baseOut,
+            exportScale,
+            componentCount: written.filter((p) => p.endsWith("manifest.json")).length,
+            written,
+          },
+          null,
+          2
+        )
+      );
+    } catch (e) {
+      return err(e.message);
+    }
+  },
+};
+
+/**
+ * Recursively export a layer node to disk and return its manifest descriptor.
+ * Mirrors `decompose.js` layer kinds: text is recorded only; icon/sprite is
+ * rasterized (png) or copied verbatim (svg); group is structural.
+ *
+ * @param {import("playwright").Page} page - the loaded page.
+ * @param {object} node - a layer node from decomposePage (has kind, selector, rect, ...).
+ * @param {string} component - the component name (used for asset filenames).
+ * @param {string} compDir - absolute output dir for this component.
+ * @param {string} relPrefix - project-relative path prefix for manifest asset paths.
+ * @param {number} exportScale - deviceScaleFactor in effect (informational here).
+ * @param {string[]} written - accumulator of written file paths.
+ * @returns {Promise<object>} the manifest descriptor for this node (with children).
+ */
+async function exportLayer(page, node, component, compDir, relPrefix, exportScale, written) {
+  // Common fields carried into the manifest verbatim.
+  const out = {
+    name: node.name,
+    type: manifestType(node.kind),
+    rect: node.rect,
+    anchor: node.anchor,
+  };
+
+  if (node.kind === "text") {
+    // Recorded only — Unity creates a live TMP node from these fields.
+    out.text = node.text;
+    out.font = node.font;
+    out.size = node.size;
+    out.weight = node.weight;
+    out.color = node.color;
+    out.align = node.align;
+    return out;
+  }
+
+  if (node.kind === "group") {
+    // Structural container: no asset, just recurse.
+    if (node.children?.length) {
+      out.children = [];
+      for (const child of node.children) {
+        out.children.push(await exportLayer(page, child, component, compDir, relPrefix, exportScale, written));
+      }
+    }
+    return out;
+  }
+
+  // sprite | icon -> emit an asset.
+  out.kind = node.kind;
+  out.format = node.format;
+  out.nineSlice = node.nineSlice ?? null;
+
+  const ext = node.format === "svg" ? "svg" : "png";
+  const fileName = `${component}__${node.name}.${ext}`;
+  const absAsset = join(compDir, fileName);
+  out.asset = `${relPrefix}/${fileName}`;
+
+  if (node.format === "svg") {
+    // Extract the inline <svg> outerHTML and write it verbatim (no rasterize).
+    const svg = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      // The selector may target the <svg> itself or a wrapper containing one.
+      const svgEl = el.tagName.toLowerCase() === "svg" ? el : el.querySelector("svg");
+      return svgEl ? svgEl.outerHTML : null;
+    }, node.selector);
+    if (svg) {
+      await writeFile(absAsset, svg, "utf8");
+      written.push(absAsset);
+    } else {
+      // No inline SVG found despite svg format — record but don't fail the run.
+      out.warning = "no inline <svg> found at selector; asset not written";
+    }
+  } else {
+    // PNG: hide OTHER (text + icon) layers within this component, screenshot the
+    // element's box with a transparent background, then restore visibility.
+    await withSiblingLayersHidden(page, node, async () => {
+      const handle = await page.$(node.selector);
+      if (!handle) {
+        out.warning = "selector not found; asset not written";
+        return;
+      }
+      // Element-clipped screenshot at the context's deviceScaleFactor; omitBackground
+      // gives us alpha where the page/body is transparent.
+      const buf = await handle.screenshot({ omitBackground: true });
+      await writeFile(absAsset, buf);
+      written.push(absAsset);
+    });
+  }
+
+  // Recurse into children (e.g. a frame's nested icon/text peeled out separately).
+  if (node.children?.length) {
+    out.children = [];
+    for (const child of node.children) {
+      out.children.push(await exportLayer(page, child, component, compDir, relPrefix, exportScale, written));
+    }
+  }
+  return out;
+}
+
+/**
+ * Map a decompose kind to the manifest `type` field. sprite/icon collapse to
+ * their own type tokens; group/text pass through. The Unity builder switches on
+ * this plus `kind` for assetful nodes.
+ *
+ * @param {string} kind - one of sprite|icon|text|group.
+ * @returns {string} the manifest node type.
+ */
+function manifestType(kind) {
+  // We keep the type aligned with kind so the C# side has a single switch.
+  return kind;
+}
+
+/**
+ * Temporarily hide the text & icon descendant layers of `node` so a PNG
+ * screenshot of the frame captures the frame ONLY (no baked-in text/icons),
+ * then restore them. We hide by descendant selector so the frame's own
+ * background/border survive. Always restores even if `fn` throws.
+ *
+ * @param {import("playwright").Page} page - the loaded page.
+ * @param {object} node - the sprite/icon node being screenshot.
+ * @param {() => Promise<void>} fn - the screenshot action to run while hidden.
+ * @returns {Promise<void>}
+ */
+async function withSiblingLayersHidden(page, node, fn) {
+  // Collect the selectors of every text/icon child layer to suppress.
+  const hideSelectors = collectChildLayerSelectors(node);
+  // Apply visibility:hidden inline, remembering prior inline values to restore.
+  await page.evaluate((sels) => {
+    window.__unimancerHidden = [];
+    for (const sel of sels) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      window.__unimancerHidden.push([sel, el.style.visibility]);
+      el.style.visibility = "hidden";
+    }
+  }, hideSelectors);
+  try {
+    await fn();
+  } finally {
+    await page.evaluate(() => {
+      for (const [sel, prev] of window.__unimancerHidden || []) {
+        const el = document.querySelector(sel);
+        if (el) el.style.visibility = prev || "";
+      }
+      delete window.__unimancerHidden;
+    });
+  }
+}
+
+/**
+ * Gather the selectors of all direct & nested child layers that are text or icon
+ * (the things to hide when screenshotting a frame). The frame's own selector is
+ * NOT included — only its content layers.
+ *
+ * @param {object} node - the frame node.
+ * @returns {string[]} selectors to hide.
+ */
+function collectChildLayerSelectors(node) {
+  const acc = [];
+  const visit = (n) => {
+    if (!n.children) return;
+    for (const c of n.children) {
+      if ((c.kind === "text" || c.kind === "icon") && c.selector) acc.push(c.selector);
+      visit(c);
+    }
+  };
+  visit(node);
+  return acc;
+}

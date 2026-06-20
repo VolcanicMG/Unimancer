@@ -2,7 +2,7 @@
 
 **Command the Unity engine with AI.** Unimancer is a Model Context Protocol (MCP)
 server that bridges AI assistants (Claude, Cursor, etc.) to the Unity Editor —
-with **102 tools** spanning the core editor surface *plus* first-class
+with **105 tools** spanning the core editor surface *plus* first-class
 **Android build & device tooling** that other Unity MCP servers don't have.
 
 ```
@@ -90,7 +90,7 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 - [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
 - [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
 
-## Tools (102)
+## Tools (105)
 
 | Group | Count | Needs Unity? | Examples |
 |---|---|---|---|
@@ -102,8 +102,9 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 | Scripts & Materials | 8 | yes | create/read/edit/delete script, find-in-files, material/shader |
 | Editor, Console, Packages, Tests | 12 | yes | play/pause, console read/clear, menu, UPM add/remove, run tests, selection |
 | Visual capture | 4 | yes | game view, scene view, camera, multi-angle (returned as images) |
-| uGUI authoring | 3 | yes | create UI archetypes, set RectTransform layout/presets, dump canvas tree |
+| uGUI authoring | 4 | yes | create UI archetypes, set RectTransform layout/presets, dump canvas tree, build a component from a bridge manifest |
 | Sprites | 2 | yes | import an image as a 9-slice sprite, procedurally generate sprite PNGs |
+| HTML→sprite bridge | 2 | no (Playwright) | inventory (dry-run) and export a Claude Design HTML mockup into per-component layer assets + a manifest |
 
 ## Environment variables
 

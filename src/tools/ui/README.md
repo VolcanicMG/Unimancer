@@ -9,6 +9,7 @@ to a C# tool of the same bridge-command name in
 | `ui_create` | `ui_create` | `UiCreateTool` | Create a uGUI element from an archetype (canvas, panel, image, text, button, rawimage, scrollview, slider, empty-rect) as a proper UI GameObject. Auto-creates Canvas + EventSystem for interactive elements with no Canvas ancestor. |
 | `rect_transform_set` | `rect_transform_set` | `RectTransformSetTool` | Set RectTransform layout in one call: a `preset` anchor layout plus any explicit fields (anchors/pivot/position/size/offsets). |
 | `ui_dump` | `ui_dump` | `UiDumpTool` | Edit-mode walk of a Canvas (or all scene canvases) returning a tree of name/path/components/full rect — the edit-mode analog of `runtime_ui_list`. |
+| `ui_build_from_manifest` | `ui_build_from_manifest` | `UiBuildFromManifestTool` | Assemble a uGUI GameObject tree from a bridge `manifest.json` (from `html_export`): sprite→Image (Sliced when a 9-slice border is present), icon→Image, text→TMP (UI.Text fallback), group→RectTransform. Places each node by its rect+anchor; auto-creates Canvas+EventSystem. Reuses `RectUtil` + `SpriteImportUtil` + `GoResolve`. |
 
 ## Notes
 

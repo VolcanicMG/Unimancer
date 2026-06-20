@@ -3,5 +3,6 @@
 import { uiCreate } from "./uiCreate.js";
 import { rectTransformSet } from "./rectTransformSet.js";
 import { uiDump } from "./uiDump.js";
+import { uiBuildFromManifest } from "./uiBuildFromManifest.js";
 
-export const uiTools = [uiCreate, rectTransformSet, uiDump];
+export const uiTools = [uiCreate, rectTransformSet, uiDump, uiBuildFromManifest];

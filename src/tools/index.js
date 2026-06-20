@@ -19,6 +19,7 @@ import { batchTools } from "./batch/index.js";
 import { runtimeTools } from "./runtime/index.js";
 import { uiTools } from "./ui/index.js";
 import { spriteTools } from "./sprites/index.js";
+import { bridgeTools } from "./bridge/index.js";
 
 /** @type {import("../core/types.js").ToolDefinition[]} */
 export const allTools = [
@@ -38,4 +39,5 @@ export const allTools = [
   ...runtimeTools,
   ...uiTools,
   ...spriteTools,
+  ...bridgeTools,
 ];

@@ -1,7 +1,7 @@
 # Using Unimancer
 
 Unimancer is an MCP server that lets an AI assistant drive the Unity Editor — and
-a running game — with **102 tools** across 16 groups, plus live resources and
+a running game — with **105 tools** across 17 groups, plus live resources and
 event notifications. First-class **Android** tooling sets it apart.
 
 ---
@@ -77,8 +77,9 @@ Tools are named `group_action`. Just ask in natural language — the client pick
 | **animation** | 5 | "create a clip", "add a position curve", "inspect the Animator on Boss" |
 | **batch** | 1 | run many tools in one call (see §6) |
 | **runtime** | 11 | drive a *running* game (see §5) |
-| **ui** | 3 | "create a Button on the Canvas", "stretch this panel to fill", "dump the canvas tree" |
+| **ui** | 4 | "create a Button on the Canvas", "stretch this panel to fill", "dump the canvas tree", "build this component from its manifest" |
 | **sprites** | 2 | "import panel.png as a 9-slice sprite", "generate a 64x64 radial-gradient sprite" |
+| **bridge** | 2 | "inventory this Claude Design HTML mockup", "export this HTML into Unity components" (Node-only, Playwright) |
 
 ---
 
