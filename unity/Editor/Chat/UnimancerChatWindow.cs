@@ -326,12 +326,16 @@ namespace Unimancer
                 using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_lastError)))
                     if (GUILayout.Button("Fix last error", EditorStyles.toolbarButton))
                         SetInput("Fix this Unity console error:\n" + _lastError + "\n" + _lastErrorStack);
-                // HTML->Unity bridge: pick a Claude Design HTML file and run the
-                // export/build (or a dry-run preview) via the headless agent's MCP tools.
-                if (GUILayout.Button("HTML → Unity", EditorStyles.toolbarButton))
-                    RunHtmlBridge(true);
-                if (GUILayout.Button("Preview HTML", EditorStyles.toolbarButton))
-                    RunHtmlBridge(false);
+                // Tools dropdown — houses the HTML→Unity bridge ops (and leaves room to
+                // grow) so the quick-bar stays compact instead of overflowing.
+                if (GUILayout.Button("Tools ▾", EditorStyles.toolbarDropDown))
+                {
+                    var toolsRect = GUILayoutUtility.GetLastRect();
+                    var menu = new GenericMenu();
+                    menu.AddItem(new GUIContent("HTML → Unity (build from HTML file)"), false, () => RunHtmlBridge(true));
+                    menu.AddItem(new GUIContent("Preview HTML (inventory, no write)"), false, () => RunHtmlBridge(false));
+                    menu.DropDown(toolsRect);
+                }
                 GUILayout.FlexibleSpace();
                 EditorGUI.BeginChangeCheck();
                 _syncSelection = GUILayout.Toggle(_syncSelection, "Sync selection", EditorStyles.toolbarButton);
