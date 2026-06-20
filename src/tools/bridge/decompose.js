@@ -149,6 +149,39 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
     return max;
   }
 
+  /** Resolve a CSS length token ("12%" / "8px") against a basis; px otherwise. */
+  function resolveLen(v, basis) {
+    v = (v || "").trim();
+    if (v.charAt(v.length - 1) === "%") return (parseFloat(v) || 0) / 100 * basis;
+    return parseFloat(v) || 0;
+  }
+
+  // Per-side inset (CSS px) implied by a clip-path polygon: how far each edge is
+  // chamfered/beveled inward. Claude Design HUD frames get their shape from
+  // clip-path (not border-radius/border), so this is the real 9-slice signal for
+  // them. For every vertex we record its inset from whichever horizontal and
+  // vertical edge it sits nearer to; the max per edge is the corner-region size
+  // that must stay fixed when the middle stretches.
+  function clipInsets(el, cs) {
+    var cp = cs.clipPath;
+    if (!cp || cp.indexOf("polygon") < 0) return null;
+    var m = cp.match(/polygon\\(([^)]*)\\)/);
+    if (!m) return null;
+    var b = el.getBoundingClientRect();
+    var w = b.width, h = b.height;
+    if (w <= 0 || h <= 0) return null;
+    var l = 0, t = 0, r = 0, bot = 0;
+    var pairs = m[1].split(",");
+    for (var i = 0; i < pairs.length; i++) {
+      var xy = pairs[i].trim().split(/\\s+/);
+      if (xy.length < 2) continue;
+      var x = resolveLen(xy[0], w), y = resolveLen(xy[1], h);
+      if (x <= w / 2) { if (x > l) l = x; } else { if (w - x > r) r = w - x; }
+      if (y <= h / 2) { if (y > t) t = y; } else { if (h - y > bot) bot = h - y; }
+    }
+    return { l: l, t: t, r: r, b: bot };
+  }
+
   function autoNineSlice(el, cs, rect) {
     var radius = Math.max(
       px(cs.borderTopLeftRadius), px(cs.borderTopRightRadius),
@@ -159,15 +192,27 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
       px(cs.borderBottomWidth), px(cs.borderLeftWidth)
     );
     var shadow = parseShadowExtent(cs.boxShadow);
-    var b = Math.ceil((radius + bw + Math.max(0, shadow)) * Math.max(sx, sy));
-    if (b <= 0) return null;
-    // Clamp so the center slice stays positive on both axes.
-    var maxL = Math.floor((rect.w - 1) / 2);
-    var maxT = Math.floor((rect.h - 1) / 2);
-    var L = Math.min(b, maxL), T = Math.min(b, maxT);
-    if (L <= 0 || T <= 0) return null;
-    // Uniform border on all four sides (symmetric frame assumption).
-    return [L, T, L, T];
+    // Uniform base from radius/border/outer-shadow (CSS px), then layer on the
+    // per-side clip-path chamfer so beveled/notched HUD frames slice correctly.
+    var base = radius + bw + Math.max(0, shadow);
+    var L = base, T = base, R = base, B = base;
+    var clip = clipInsets(el, cs);
+    if (clip) {
+      if (clip.l > L) L = clip.l;
+      if (clip.t > T) T = clip.t;
+      if (clip.r > R) R = clip.r;
+      if (clip.b > B) B = clip.b;
+    }
+    // CSS px -> design px (x axis vs y axis scale).
+    L = Math.ceil(L * sx); R = Math.ceil(R * sx);
+    T = Math.ceil(T * sy); B = Math.ceil(B * sy);
+    // Clamp so the center slice stays positive on each axis.
+    var maxX = Math.floor((rect.w - 1) / 2);
+    var maxY = Math.floor((rect.h - 1) / 2);
+    L = Math.min(L, maxX); R = Math.min(R, maxX);
+    T = Math.min(T, maxY); B = Math.min(B, maxY);
+    if (L <= 0 && T <= 0 && R <= 0 && B <= 0) return null;
+    return [Math.max(L, 0), Math.max(T, 0), Math.max(R, 0), Math.max(B, 0)];
   }
 
   // ---- anchor inference -------------------------------------------------
