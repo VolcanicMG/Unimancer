@@ -17,6 +17,8 @@ import { navmeshTools } from "./navmesh/index.js";
 import { animationTools } from "./animation/index.js";
 import { batchTools } from "./batch/index.js";
 import { runtimeTools } from "./runtime/index.js";
+import { uiTools } from "./ui/index.js";
+import { spriteTools } from "./sprites/index.js";
 
 /** @type {import("../core/types.js").ToolDefinition[]} */
 export const allTools = [
@@ -34,4 +36,6 @@ export const allTools = [
   ...animationTools,
   ...batchTools,
   ...runtimeTools,
+  ...uiTools,
+  ...spriteTools,
 ];

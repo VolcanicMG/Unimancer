@@ -24,7 +24,9 @@ unimancer/
 │       ├── sceneAssets/      Scenes, Assets, Prefabs (Unity bridge)
 │       ├── scripts/          Scripts, Materials, Shaders (Unity bridge)
 │       ├── editor/           Editor/Console/Packages/Tests (Unity bridge)
-│       └── capture/          Visual capture → image results (Unity bridge)
+│       ├── capture/          Visual capture → image results (Unity bridge)
+│       ├── ui/               uGUI authoring: ui_create / rect_transform_set / ui_dump (Unity bridge)
+│       └── sprites/          sprite_import / sprite_generate — TextureImporter + procedural PNGs (Unity bridge)
 └── unity/                    ── the Unity UPM package (C#) ──
     ├── package.json          UPM manifest (com.unimancer.mcp)
     └── Editor/

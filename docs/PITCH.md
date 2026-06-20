@@ -76,7 +76,7 @@ rides a **self-healing bridge**. No external editor or API key required.
 | Android device control (adb/logcat/screenshot) | ✅ 23 tools | ❌ | ❌ |
 | Android build (APK/AAB, keystore, AGP 9) | ✅ | partial | ❌ |
 | Drive a *running* game | ✅ (Play + dev build + device) | ❌ | ✅ (no mobile) |
-| Total tools | **97** | ~15–86 | ~20 |
+| Total tools | **102** | ~15–86 | ~20 |
 | Batch / resources / notifications | ✅ all three | some | some |
 | Image capture returned to the model | ✅ | some | rare |
 | In-Editor AI chat (no API key, on subscription) | ✅ | ❌ | ❌ |
