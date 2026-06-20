@@ -328,7 +328,7 @@ namespace Unimancer
                         SetInput("Fix this Unity console error:\n" + _lastError + "\n" + _lastErrorStack);
                 // Tools dropdown — houses the HTML→Unity bridge ops (and leaves room to
                 // grow) so the quick-bar stays compact instead of overflowing.
-                if (GUILayout.Button("Tools ▾", EditorStyles.toolbarDropDown))
+                if (GUILayout.Button("Tools", EditorStyles.toolbarDropDown))
                 {
                     var toolsRect = GUILayoutUtility.GetLastRect();
                     var menu = new GenericMenu();
