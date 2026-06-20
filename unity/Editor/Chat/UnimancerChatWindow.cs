@@ -331,13 +331,7 @@ namespace Unimancer
                 if (GUILayout.Button("Tools", EditorStyles.toolbarDropDown))
                 {
                     var toolsRect = GUILayoutUtility.GetLastRect();
-                    var menu = new GenericMenu();
-                    // A disabled item renders as a non-clickable section heading describing the group.
-                    menu.AddDisabledItem(new GUIContent("HTML → Unity bridge — build UGUI from a Claude Design HTML file"));
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent("Build from HTML file"), false, () => RunHtmlBridge(true));
-                    menu.AddItem(new GUIContent("Preview HTML (inventory, no write)"), false, () => RunHtmlBridge(false));
-                    menu.DropDown(toolsRect);
+                    PopupWindow.Show(toolsRect, new ToolsPopup(this));
                 }
                 GUILayout.FlexibleSpace();
                 EditorGUI.BeginChangeCheck();
@@ -384,6 +378,47 @@ namespace Unimancer
             GUI.FocusControl(null);
             if (EnsureSession().IsBusy) _queued.Add(pending); else DispatchTurn(pending);
             Repaint();
+        }
+
+        /// <summary>
+        /// Styled dropdown for the chat Tools button. Uses a PopupWindow rather than a
+        /// GenericMenu so the section heading can render bold and in the normal text
+        /// color — a GenericMenu can only show a heading as a greyed-out disabled item.
+        /// </summary>
+        private class ToolsPopup : PopupWindowContent
+        {
+            private readonly UnimancerChatWindow _owner;
+            private GUIStyle _row;
+
+            /// <param name="owner">The chat window whose bridge actions the rows invoke.</param>
+            public ToolsPopup(UnimancerChatWindow owner) { _owner = owner; }
+
+            /// <inheritdoc />
+            public override Vector2 GetWindowSize() => new Vector2(300f, 124f);
+
+            /// <inheritdoc />
+            public override void OnGUI(Rect rect)
+            {
+                if (_row == null)
+                    _row = new GUIStyle(GUI.skin.button) { alignment = TextAnchor.MiddleLeft, padding = new RectOffset(8, 8, 4, 4) };
+                var sub = new GUIStyle(EditorStyles.miniLabel) { wordWrap = true };
+
+                GUILayout.Space(2);
+                EditorGUILayout.LabelField("HTML → Unity bridge", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Build UGUI from a Claude Design HTML file", sub);
+                GUILayout.Space(4);
+
+                if (GUILayout.Button("Build from HTML file", _row))
+                {
+                    editorWindow.Close();
+                    _owner.RunHtmlBridge(true);
+                }
+                if (GUILayout.Button("Preview HTML (inventory, no write)", _row))
+                {
+                    editorWindow.Close();
+                    _owner.RunHtmlBridge(false);
+                }
+            }
         }
 
         /// <summary>Attach the current Editor selection to the pending references.</summary>
