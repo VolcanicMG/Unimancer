@@ -2,7 +2,7 @@
 
 **Command the Unity engine with AI.** Unimancer is a Model Context Protocol (MCP)
 server that bridges AI assistants (Claude, Cursor, etc.) to the Unity Editor —
-with **106 tools** spanning the core editor surface *plus* first-class
+with **107 tools** spanning the core editor surface *plus* first-class
 **Android build & device tooling** that other Unity MCP servers don't have.
 
 ```
@@ -106,7 +106,7 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 - [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
 - [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
 
-## Tools (106)
+## Tools (107)
 
 | Group | Count | Needs Unity? | Examples |
 |---|---|---|---|
@@ -120,7 +120,7 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 | Visual capture | 4 | yes | game view, scene view, camera, multi-angle (returned as images) |
 | uGUI authoring | 4 | yes | create UI archetypes, set RectTransform layout/presets, dump canvas tree, build a component from a bridge manifest |
 | Sprites | 2 | yes | import an image as a 9-slice sprite, procedurally generate sprite PNGs |
-| HTML→Unity bridge | 3 | export: no (Playwright); build: yes | inventory (dry-run), export a Claude Design HTML mockup into per-component layer assets + a manifest, and `html_to_unity` (one-shot export **and** build in Unity) |
+| HTML→Unity bridge | 4 | export/preview: no (Playwright); build: yes | inventory (dry-run), **per-layer preview** (`html_preview` — full crop + every separated layer per component: frame, sub-sprites (progress fills, plates), icons — each isolated as a shape-accurate transparent sprite (no black corners) with its own 9-slice or none; shown in a dedicated popout (full crop is reference-only — Unity builds from the layers); temp crops auto-clean), export a Claude Design HTML mockup into per-component layer assets + a manifest, and `html_to_unity` (one-shot export **and** build in Unity) |
 
 ## Environment variables
 

@@ -387,12 +387,14 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
       node.nineSlice = null; // group
     }
 
-    // Recurse into element children. We peel ONLY text + icon layers; nested
-    // styled frames/groups are FLATTENED (their own frame bakes into this
-    // parent's raster and their text/icon leaves are hoisted up). This avoids
-    // spurious half-covered sub-sprites — a component is one frame + its
-    // text/icons. An author can override per element with data-layer="sprite"
-    // to keep a nested frame as its own layer (e.g. a progress-bar fill).
+    // Recurse into element children. We peel EVERY visual layer into its own
+    // node — text, icon, AND nested sprite frames (a progress-bar fill, an inset
+    // icon plate, a badge, a beveled sub-panel). Peeling keeps each off the
+    // parent frame's raster, so the parent 9-slices cleanly and each sub-element
+    // becomes its own correctly-scaled sprite instead of being baked in. Only
+    // GROUPS (unstyled structural containers) are FLATTENED: they have no raster,
+    // so their already-peeled leaves are hoisted up to this parent.
+    // (data-layer="skip" still excludes a node entirely — handled atop buildLayer.)
     var children = [];
     var kids = elChildren(el);
     for (var i = 0; i < kids.length; i++) {
@@ -400,12 +402,10 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
       var childNode = buildLayer(kid, root, el, depth + 1);
       if (!childNode) continue;
       var ck = childNode.kind;
-      if (ck === "text" || ck === "icon") {
+      if (ck === "text" || ck === "icon" || ck === "sprite") {
         children.push(childNode);
-      } else if (kid.getAttribute && kid.getAttribute("data-layer") === "sprite") {
-        children.push(childNode); // explicit: keep nested frame as its own layer
       } else {
-        // Flatten: hoist the nested frame/group's already-peeled leaves up.
+        // group: structural only — hoist its already-peeled leaves up.
         var hoist = childNode.children || [];
         for (var j = 0; j < hoist.length; j++) children.push(hoist[j]);
       }

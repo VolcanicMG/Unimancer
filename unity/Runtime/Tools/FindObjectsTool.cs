@@ -30,9 +30,10 @@ namespace Unimancer.Runtime
                 var exact = parameters["exact"]?.ToObject<bool>() ?? false;
                 var includeInactive = parameters["includeInactive"]?.ToObject<bool>() ?? true;
 
+                // Two-arg overload (no FindObjectsSortMode) — the SortMode variants are
+                // deprecated in Unity 6 (CS0618); result order is not relied upon.
                 var all = UnityEngine.Object.FindObjectsByType<GameObject>(
-                    includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude,
-                    FindObjectsSortMode.None);
+                    includeInactive ? FindObjectsInactive.Include : FindObjectsInactive.Exclude);
 
                 var seen = new HashSet<string>();
                 var results = new JArray();

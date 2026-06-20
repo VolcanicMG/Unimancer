@@ -359,21 +359,38 @@ namespace Unimancer
         /// Pick a Claude Design HTML file and dispatch a bridge turn to the headless
         /// agent. When <paramref name="build"/> is true it runs the html_to_unity MCP
         /// tool (decompose into PNG/SVG layers + manifest, then reassemble as UGUI);
-        /// otherwise it runs html_inventory as a dry-run preview (writes nothing).
-        /// Reuses the normal turn dispatch so it honors the busy/queue state.
+        /// otherwise it runs html_preview (inline:false) into a temp dir and opens the
+        /// <see cref="BridgePreviewWindow"/> popout to review the per-component crops —
+        /// keeping the images OUT of the chat. Reuses the normal turn dispatch so it
+        /// honors the busy/queue state.
         /// </summary>
-        /// <param name="build">True = export + build in Unity; false = inventory preview only.</param>
+        /// <param name="build">True = export + build in Unity; false = per-component preview popout.</param>
         private void RunHtmlBridge(bool build)
         {
             var path = EditorUtility.OpenFilePanel("Select Claude Design HTML", "", "html");
             if (string.IsNullOrEmpty(path)) return;
             var file = System.IO.Path.GetFileName(path);
-            string prompt = build
-                ? "Use the html_to_unity MCP tool to build the UI from this Claude Design HTML file into Unity: \"" + path + "\". " +
-                  "It decomposes each widget into transparent PNG/SVG layers plus a manifest and reassembles them as UGUI under a Canvas. " +
-                  "Run html_inventory first to preview the components, then export and build, and summarize what you created."
-                : "Run the html_inventory MCP tool on this Claude Design HTML file and give me a concise list of the components and layers it detects \u2014 no files written: \"" + path + "\".";
-            var display = (build ? "\U0001F3A8 Build HTML \u2192 Unity: " : "\U0001F50D Preview HTML: ") + file;
+            string prompt, display;
+            if (build)
+            {
+                prompt = "Use the html_to_unity MCP tool to build the UI from this Claude Design HTML file into Unity: \"" + path + "\". " +
+                         "It decomposes each widget into transparent PNG/SVG layers plus a manifest and reassembles them as UGUI under a Canvas. " +
+                         "Run html_inventory first to preview the components, then export and build, and summarize what you created.";
+                display = "\U0001F3A8 Build HTML \u2192 Unity: " + file;
+            }
+            else
+            {
+                // Per-component preview goes to a dedicated popout, NOT the chat. The tool
+                // writes one crop per component (+ preview-index.json) to a temp dir the
+                // popout watches; inline:false keeps the images out of the transcript.
+                bool wsl = EditorPrefs.GetBool(PrefWsl, false);
+                var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "unimancer-preview-" + Guid.NewGuid().ToString("N"));
+                prompt = "Run the html_preview MCP tool with htmlPath \"" + path + "\", outDir \"" + ToShellPath(wsl, dir) + "\", and inline:false. " +
+                         "This writes a FULL crop and a FRAME (9-slice, text/icons removed) crop per component, plus preview-index.json, to that dir (the Unity HTML Preview popout displays them) \u2014 do NOT return the images inline. " +
+                         "Then reply with just the one-line component summary.";
+                display = "\U0001F50D Preview HTML: " + file + " \u2192 popout";
+                BridgePreviewWindow.Open(dir, path); // opens now; watches the dir until the crops land
+            }
             var pending = new Pending { Display = display, Prompt = prompt, Title = display };
             GUI.FocusControl(null);
             if (EnsureSession().IsBusy) _queued.Add(pending); else DispatchTurn(pending);
@@ -413,7 +430,7 @@ namespace Unimancer
                     editorWindow.Close();
                     _owner.RunHtmlBridge(true);
                 }
-                if (GUILayout.Button("Preview HTML (inventory, no write)", _row))
+                if (GUILayout.Button("Preview HTML (per-component popout)", _row))
                 {
                     editorWindow.Close();
                     _owner.RunHtmlBridge(false);
@@ -495,6 +512,25 @@ namespace Unimancer
             return DateTimeOffset.FromUnixTimeSeconds(resetsAtEpoch).ToLocalTime().ToString("h:mmtt");
         }
 
+        /// <summary>
+        /// Context-window size (tokens) for the chat's selected model — the ctx-bar
+        /// denominator. Current Claude models: Opus, Sonnet and Fable are 1M; Haiku is
+        /// 200K. "Default" (let Claude Code choose) resolves to the subscription default
+        /// (Opus/Sonnet) = 1M. An unknown custom id falls back to a size heuristic from
+        /// the observed prompt so the bar still tracks usage.
+        /// </summary>
+        /// <param name="model">The --model value ("", "opus", "sonnet", "haiku", or a custom id).</param>
+        /// <param name="observedCtx">Latest turn's prompt size; used only for the unknown-model fallback.</param>
+        /// <returns>The context window in tokens.</returns>
+        private static long ContextWindowForModel(string model, long observedCtx)
+        {
+            var m = (model ?? "").ToLowerInvariant();
+            if (m.Contains("haiku")) return 200000;
+            if (m.Contains("opus") || m.Contains("sonnet") || m.Contains("fable")) return 1000000;
+            if (m.Length == 0) return 1000000; // Default -> subscription default (Opus/Sonnet) = 1M
+            return observedCtx <= 200000 ? 200000 : 1000000; // unknown custom id: heuristic
+        }
+
         private void DrawHeader()
         {
             EditorGUILayout.Space(4);
@@ -506,8 +542,8 @@ namespace Unimancer
                 GUILayout.FlexibleSpace();
                 if (_lastCtxTokens > 0)
                 {
-                    // 200k for standard models, 1M when the prompt clearly exceeds 200k.
-                    long ctxWindow = _lastCtxTokens <= 200000 ? 200000 : 1000000;
+                    // Denominator = the selected model's real context window, not a guess.
+                    long ctxWindow = ContextWindowForModel(_model, _lastCtxTokens);
                     float pct = Mathf.Clamp01(_lastCtxTokens / (float)ctxWindow);
                     var barRect = GUILayoutUtility.GetRect(150f, 16f, GUILayout.Width(150f));
                     EditorGUI.ProgressBar(barRect, pct,
@@ -730,10 +766,22 @@ namespace Unimancer
         private static readonly Regex BoldRx = new Regex(@"\*\*(.+?)\*\*", RegexOptions.Compiled);
         private static readonly Regex CodeRx = new Regex(@"`([^`]+?)`", RegexOptions.Compiled);
 
+        // Some model/CLI combos narrate a tool call as VISIBLE text (an
+        // <invoke …><parameter …>…</invoke> block) in the assistant stream, which
+        // then renders as ugly escaped markup — even though the panel already shows
+        // the real tool call as a "⚙ …" chip. Strip that leaked syntax on render.
+        private static readonly Regex ToolCallBlockRx =
+            new Regex(@"<invoke\b[\s\S]*?</invoke>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex StrayToolTagRx =
+            new Regex(@"</?(?:invoke|parameter)\b[^>]*>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex LoneCallLineRx =
+            new Regex(@"^\s*call\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
+
         /// <summary>Render a chat message with markdown-lite (headings, bold, code, lists, fences).</summary>
         private void DrawRichMessage(Role role, string text, GUIStyle baseStyle)
         {
             EditorGUILayout.LabelField(role == Role.User ? "<b>You</b>" : "<b>Unimancer</b>", baseStyle);
+            if (role == Role.Assistant) text = StripLeakedToolCalls(text);
             var handles = new List<string>();
             foreach (var block in SplitFences(text))
             {
@@ -741,6 +789,26 @@ namespace Unimancer
                 else DrawMarkdownText(block.text, baseStyle, handles);
             }
             DrawRefLinks(handles);
+        }
+
+        /// <summary>
+        /// Strip any tool-call syntax the model narrated as visible text
+        /// (<c>&lt;invoke&gt;…&lt;/invoke&gt;</c> blocks, stray invoke/parameter tags,
+        /// and a lone leading "call" line) so the reply reads cleanly — the real tool
+        /// call is already shown as its own "⚙" chip line.
+        /// </summary>
+        /// <param name="text">The raw assistant text.</param>
+        /// <returns>The text with leaked tool-call markup removed.</returns>
+        private static string StripLeakedToolCalls(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            if (text.IndexOf("<invoke", StringComparison.OrdinalIgnoreCase) < 0 &&
+                text.IndexOf("<parameter", StringComparison.OrdinalIgnoreCase) < 0)
+                return text;
+            text = ToolCallBlockRx.Replace(text, "");
+            text = StrayToolTagRx.Replace(text, ""); // partial/streaming leftovers
+            text = LoneCallLineRx.Replace(text, "");
+            return text.Trim();
         }
 
         /// <summary>Split a message into alternating text / fenced-code blocks (``` delimited).</summary>
@@ -1427,6 +1495,18 @@ namespace Unimancer
             EditorPrefs.SetString(PrefLastConv, _convId);
         }
 
+        /// <summary>
+        /// Clear transient, conversation-scoped interaction state — the pending
+        /// "ask the user" buttons and any queued follow-ups — so switching to a new
+        /// or loaded chat does not carry the previous chat's prompts over.
+        /// </summary>
+        private void ClearPendingInteractions()
+        {
+            _askQuestion = null;
+            _askOptions.Clear();
+            _queued.Clear();
+        }
+
         /// <summary>Persist the current chat, then start a fresh one.</summary>
         private void NewConversation()
         {
@@ -1438,6 +1518,7 @@ namespace Unimancer
             _streamIndex = -1;
             _convId = null;
             _convTitle = null;
+            ClearPendingInteractions(); // drop any leftover ask-buttons / queued follow-ups
             EditorPrefs.DeleteKey(PrefLastConv);
         }
 
@@ -1484,6 +1565,7 @@ namespace Unimancer
             _session = null; // rebuilt on next send with current settings
             _lines.Clear();
             _lastCtxTokens = 0; _lastTurnUsage = ""; // ctx unknown for the resumed chat until its next turn emits usage
+            ClearPendingInteractions(); // a loaded chat starts clean — no stale ask-buttons / queue
             foreach (var dto in c.lines)
                 _lines.Add(new Line { Role = (Role)dto.role, Text = dto.text });
             _convId = c.id;

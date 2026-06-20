@@ -30,6 +30,7 @@ import { resolve, join, isAbsolute } from "node:path";
 import { stat, mkdir, writeFile } from "node:fs/promises";
 import { withPage } from "./playwright.js";
 import { decomposePage } from "./decompose.js";
+import { withIsolatedElement } from "./layers.js";
 
 /** @type {import("../../core/types.js").ToolDefinition} */
 export const htmlExport = {
@@ -236,7 +237,7 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
   } else {
     // PNG: hide OTHER (text + icon) layers within this component, screenshot the
     // element's box with a transparent background, then restore visibility.
-    await withSiblingLayersHidden(page, node, async () => {
+    await withIsolatedElement(page, node, async () => {
       const handle = await page.$(node.selector);
       if (!handle) {
         out.warning = "selector not found; asset not written";
@@ -278,101 +279,4 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
 function manifestType(kind) {
   // We keep the type aligned with kind so the C# side has a single switch.
   return kind;
-}
-
-/**
- * Temporarily hide the text & icon descendant layers of `node` so a PNG
- * screenshot of the frame captures the frame ONLY (no baked-in text/icons),
- * then restore them. We hide by descendant selector so the frame's own
- * background/border survive. Always restores even if `fn` throws.
- *
- * @param {import("playwright").Page} page - the loaded page.
- * @param {object} node - the sprite/icon node being screenshot.
- * @param {() => Promise<void>} fn - the screenshot action to run while hidden.
- * @returns {Promise<void>}
- */
-async function withSiblingLayersHidden(page, node, fn) {
-  // Element child text/icon layers are hidden outright (visibility). Own-text
-  // labels share the frame's selector, so they can't be visibility-hidden
-  // without blanking the frame — they're dimmed to transparent color instead.
-  const hideSelectors = collectChildLayerSelectors(node);
-  const dimSelectors = collectOwnTextSelectors(node);
-  await page.evaluate(({ sels, dims }) => {
-    window.__unimancerHidden = [];
-    window.__unimancerDimmed = [];
-    for (const sel of sels) {
-      const el = document.querySelector(sel);
-      if (!el) continue;
-      window.__unimancerHidden.push([sel, el.style.visibility]);
-      el.style.visibility = "hidden";
-    }
-    for (const sel of dims) {
-      const el = document.querySelector(sel);
-      if (!el) continue;
-      window.__unimancerDimmed.push([sel, el.style.color, el.style.textShadow]);
-      el.style.color = "transparent";
-      el.style.textShadow = "none";
-    }
-  }, { sels: hideSelectors, dims: dimSelectors });
-  try {
-    await fn();
-  } finally {
-    await page.evaluate(() => {
-      for (const [sel, prev] of window.__unimancerHidden || []) {
-        const el = document.querySelector(sel);
-        if (el) el.style.visibility = prev || "";
-      }
-      for (const [sel, c, ts] of window.__unimancerDimmed || []) {
-        const el = document.querySelector(sel);
-        if (el) { el.style.color = c || ""; el.style.textShadow = ts || ""; }
-      }
-      delete window.__unimancerHidden;
-      delete window.__unimancerDimmed;
-    });
-  }
-}
-
-/**
- * Gather the selectors of all direct & nested child layers that are text or icon
- * (the things to hide when screenshotting a frame). The frame's own selector is
- * NOT included — only its content layers.
- *
- * @param {object} node - the frame node.
- * @returns {string[]} selectors to hide.
- */
-function collectChildLayerSelectors(node) {
-  const acc = [];
-  const visit = (n) => {
-    if (!n.children) return;
-    for (const c of n.children) {
-      // Own-text labels share the frame selector — never visibility-hide them
-      // (that would blank the frame); they're dimmed via collectOwnTextSelectors.
-      if (c.ownText) { visit(c); continue; }
-      if ((c.kind === "text" || c.kind === "icon") && c.selector) acc.push(c.selector);
-      visit(c);
-    }
-  };
-  visit(node);
-  return acc;
-}
-
-/**
- * Gather selectors of own-text label layers (text that lives directly on a
- * styled frame, sharing its selector). The exporter dims these to transparent
- * during the frame screenshot so the label doesn't bake into the frame raster.
- *
- * @param {object} node - the frame node.
- * @returns {string[]} selectors to dim.
- */
-function collectOwnTextSelectors(node) {
-  const acc = [];
-  const visit = (n) => {
-    if (!n.children) return;
-    for (const c of n.children) {
-      if (c.ownText && c.selector) acc.push(c.selector);
-      visit(c);
-    }
-  };
-  visit(node);
-  return acc;
 }

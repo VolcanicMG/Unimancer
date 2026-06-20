@@ -42,14 +42,15 @@ namespace Unimancer
 
         /// <summary>
         /// Find every NavMeshSurface instance in the loaded scenes (including
-        /// inactive ones), via the non-deprecated typed FindObjectsByType API.
+        /// inactive ones), via the non-deprecated two-arg FindObjectsByType overload.
+        /// We omit the FindObjectsSortMode argument (deprecated in Unity 6 — it warns
+        /// CS0618) because we bake/clear every surface, so result order is irrelevant.
         /// </summary>
         /// <param name="surfaceType">The resolved NavMeshSurface type.</param>
         /// <returns>All NavMeshSurface components currently in the scene(s).</returns>
         public static UnityEngine.Object[] FindSurfaces(Type surfaceType)
         {
-            return UnityEngine.Object.FindObjectsByType(
-                surfaceType, FindObjectsInactive.Include, FindObjectsSortMode.None);
+            return UnityEngine.Object.FindObjectsByType(surfaceType, FindObjectsInactive.Include);
         }
     }
 }

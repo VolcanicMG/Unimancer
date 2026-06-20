@@ -27,8 +27,9 @@ namespace Unimancer.Runtime
 
             // GameObject.Find only sees active objects; fall back to a full scan so
             // inactive objects (and bare-name matches) are still reachable.
-            var all = UnityEngine.Object.FindObjectsByType<GameObject>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            // Two-arg overload (no FindObjectsSortMode) — the SortMode variants are
+            // deprecated in Unity 6 (CS0618); we don't depend on result order.
+            var all = UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include);
             return all.FirstOrDefault(g => g.name == target);
         }
 

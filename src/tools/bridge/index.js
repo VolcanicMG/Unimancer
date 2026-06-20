@@ -3,5 +3,6 @@
 import { htmlInventory } from "./htmlInventory.js";
 import { htmlExport } from "./htmlExport.js";
 import { htmlToUnity } from "./html_to_unity.js";
+import { htmlPreview } from "./htmlPreview.js";
 
-export const bridgeTools = [htmlInventory, htmlExport, htmlToUnity];
+export const bridgeTools = [htmlInventory, htmlPreview, htmlExport, htmlToUnity];

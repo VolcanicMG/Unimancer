@@ -28,7 +28,8 @@ namespace Unimancer.Runtime
                 if (selType == null)
                     return new JObject { ["error"] = "UnityEngine.UI.Selectable not found (is com.unity.ugui present?)" };
 
-                var found = UnityEngine.Object.FindObjectsByType(selType, FindObjectsInactive.Include, FindObjectsSortMode.None);
+                // Two-arg overload (no FindObjectsSortMode) — deprecated in Unity 6 (CS0618).
+                var found = UnityEngine.Object.FindObjectsByType(selType, FindObjectsInactive.Include);
                 var interactableProp = selType.GetProperty("interactable", BindingFlags.Public | BindingFlags.Instance);
 
                 var elements = new JArray();
