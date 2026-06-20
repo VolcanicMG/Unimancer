@@ -47,11 +47,17 @@ full screen in Unity by hand from components.
 
 1. **Explicit `data-ui` tags win.** Each tagged element (except `data-ui="screen"`,
    which is looked *into*) is a component root.
-2. **Zero-tag Claude Design HTML → auto-detect `<button>` elements only.** Every
-   visible `<button>` becomes one component. Buttons are an unambiguous, reusable
-   widget boundary; non-button panels (info bars, counters, decorative
-   corner-bracket accents) are too noisy to infer, so they are **not**
-   auto-promoted — tag a panel with `data-ui="component"`/`"panel"` to export it.
+2. **Zero-tag Claude Design HTML → auto-detect buttons + content panels:**
+   - **Every visible `<button>`** becomes one component — an unambiguous, reusable
+     widget boundary.
+   - **Content-bearing panels** (info bars, resource counters) become components
+     too. A panel qualifies only when it is visibly **styled** (background/border/
+     shadow) **and carries real content** (≥4 text chars **or** an icon) **and** is a
+     sensible size (≥48×20, under 70% of the page) **and** does **not** wrap a
+     `<button>` (those buttons are the widgets, so a button row is skipped, not the
+     panel). Only the **outermost** qualifying panel in a nest is kept. This admits
+     real panels while rejecting Claude Design's decorative corner-bracket / accent
+     shapes (styled but empty). Override anything with `data-ui` when inference is wrong.
 3. **Fallback:** styled direct children of `<body>`, else `<body>` itself.
 
 Component **names are unique across components** (each gets a distinct output

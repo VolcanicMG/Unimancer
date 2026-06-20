@@ -394,12 +394,7 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
     if (tagged.length) return tagged;
 
     // --- auto-segmentation (no data-ui present) ---
-    // Auto-detect ONLY <button> elements: they are unambiguous, reusable widget
-    // boundaries. Non-button panels (info bars, counters, and especially the
-    // decorative corner-bracket accents Claude Design sprinkles via data-dc-tpl)
-    // are too noisy to infer reliably, so we do NOT auto-promote them — tag a
-    // panel with data-ui ("component"/"panel") to export it. This keeps the
-    // zero-tag default clean (one component per real button).
+    // (1) Every <button> is a component — an unambiguous, reusable widget.
     var buttons = Array.prototype.slice.call(document.querySelectorAll("button"))
       .filter(function (el) {
         var cs = getComputedStyle(el);
@@ -407,7 +402,39 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
         var b = el.getBoundingClientRect();
         return b.width >= 8 && b.height >= 8;
       });
-    if (buttons.length) return buttons;
+
+    // (2) Content-bearing display panels (info bars, resource counters). The
+    // hard part is separating a REAL panel from Claude Design's decorative
+    // corner-bracket / accent shapes (sprinkled via data-dc-tpl), which are
+    // styled but empty. A panel qualifies only when it is visibly styled AND
+    // carries real content (>=4 text chars OR an icon) AND is a sensible size
+    // AND is NOT a layout row that merely wraps buttons (those buttons are the
+    // widgets). Decorative accents have no content and drop out.
+    var pageArea = (document.documentElement.clientWidth || 1) *
+                   (document.documentElement.clientHeight || 1);
+    function textChars(el) { return (el.textContent || "").replace(/\\s+/g, "").length; }
+    var panelCands = Array.prototype.slice.call(
+      document.querySelectorAll("div, section, header, footer, nav, aside, [data-dc-tpl]")
+    ).filter(function (el) {
+      if (el.closest("button")) return false;       // lives inside a button widget
+      if (el.querySelector("button")) return false; // a layout row holding buttons
+      var cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") return false;
+      if (!(hasBackground(cs) || hasBorder(cs) || hasShadow(cs))) return false;
+      var b = el.getBoundingClientRect();
+      if (b.width < 48 || b.height < 20) return false;       // too small = an accent
+      if (b.width * b.height > pageArea * 0.7) return false;  // that's the page wrapper
+      var hasIcon = !!el.querySelector("svg, img");
+      if (!(textChars(el) >= 4 || hasIcon)) return false;    // must carry real content
+      return true;
+    });
+    // Outermost panels only (drop a panel nested inside another kept panel).
+    var panels = panelCands.filter(function (el) {
+      return !panelCands.some(function (o) { return o !== el && o.contains(el); });
+    });
+
+    var roots = buttons.concat(panels);
+    if (roots.length) return roots;
 
     // --- priority 3: styled children of body, else body itself ---
     var fallback = [];
