@@ -34,7 +34,14 @@ namespace Unimancer
         {
             try
             {
+                // UnityEditor.AI.NavMeshBuilder is [Obsolete] in Unity 6 (the engine steers
+                // projects to the AI Navigation package / NavMeshSurface), but the legacy
+                // global bake still works and has no non-deprecated drop-in for the built-in
+                // navigation workflow. We intentionally use it and suppress the CS0618 warning
+                // so it stops spamming the Editor console.
+#pragma warning disable 0618
                 NavMeshBuilder.BuildNavMesh();
+#pragma warning restore 0618
                 return new JObject { ["baked"] = true };
             }
             catch (Exception e)

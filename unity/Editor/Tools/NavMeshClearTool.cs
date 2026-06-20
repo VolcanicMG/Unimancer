@@ -29,7 +29,11 @@ namespace Unimancer
         {
             try
             {
+                // See NavMeshBakeTool: UnityEditor.AI.NavMeshBuilder is [Obsolete] in Unity 6
+                // with no non-deprecated drop-in for the legacy workflow; suppress CS0618.
+#pragma warning disable 0618
                 NavMeshBuilder.ClearAllNavMeshes();
+#pragma warning restore 0618
                 return new JObject { ["cleared"] = true };
             }
             catch (Exception e)
