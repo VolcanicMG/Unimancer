@@ -233,9 +233,13 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
     if (isImg(el)) return "icon";
     var kids = elChildren(el);
     if (kids.length === 0) {
+      var styled0 = hasBackground(cs) || hasBorder(cs) || hasShadow(cs);
+      // A styled box holding only text (a neon tab/button label) is a FRAME with
+      // a text child — NOT pure text — so we keep its background as a sprite.
+      if (styled0 && hasOwnText(el)) return "sprite";
       if (hasOwnText(el)) return "text";
       // A childless styled box (e.g. a divider/bar) is a sprite frame.
-      if (hasBackground(cs) || hasBorder(cs) || hasShadow(cs)) return "sprite";
+      if (styled0) return "sprite";
       return "group";
     }
     // Has children: a styled container is a frame sprite; otherwise a group.
@@ -248,6 +252,33 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
     if (dataFormat === "svg" || dataFormat === "png") return dataFormat;
     if (isInlineSvg(el)) return "svg"; // keep inline <svg> vector
     return "png";
+  }
+
+  // A synthetic text layer for an element's OWN direct text (not descendants),
+  // used when a styled frame contains a label inline. It shares the frame's
+  // selector and is flagged ownText:true so the exporter suppresses it via
+  // color (not visibility) — otherwise hiding it would blank the whole frame.
+  function ownTextLayer(el, cs, root) {
+    var own = "";
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3) own += n.textContent;
+    }
+    own = own.replace(/\\s+/g, " ").trim();
+    return {
+      name: uniqueName("label"),
+      kind: "text",
+      selector: cssPath(el),
+      ownText: true,
+      rect: relRect(el, root),
+      anchor: inferAnchor(el, el.parentElement, el.getAttribute("data-anchor"), true, cs),
+      text: own,
+      font: (cs.fontFamily || "").split(",")[0].replace(/['"]/g, "").trim(),
+      size: r2(px(cs.fontSize) * Math.max(sx, sy)),
+      weight: cs.fontWeight,
+      color: toHex(cs.color),
+      align: cs.textAlign === "start" ? "left" : cs.textAlign === "end" ? "right" : (cs.textAlign || "center"),
+    };
   }
 
   // ---- recursive layer build -------------------------------------------
@@ -311,21 +342,50 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
       node.nineSlice = null; // group
     }
 
-    // Recurse into element children to peel off text/icons/nested frames.
+    // Recurse into element children. We peel ONLY text + icon layers; nested
+    // styled frames/groups are FLATTENED (their own frame bakes into this
+    // parent's raster and their text/icon leaves are hoisted up). This avoids
+    // spurious half-covered sub-sprites — a component is one frame + its
+    // text/icons. An author can override per element with data-layer="sprite"
+    // to keep a nested frame as its own layer (e.g. a progress-bar fill).
     var children = [];
     var kids = elChildren(el);
     for (var i = 0; i < kids.length; i++) {
-      var child = buildLayer(kids[i], root, el, depth + 1);
-      if (child) children.push(child);
+      var kid = kids[i];
+      var childNode = buildLayer(kid, root, el, depth + 1);
+      if (!childNode) continue;
+      var ck = childNode.kind;
+      if (ck === "text" || ck === "icon") {
+        children.push(childNode);
+      } else if (kid.getAttribute && kid.getAttribute("data-layer") === "sprite") {
+        children.push(childNode); // explicit: keep nested frame as its own layer
+      } else {
+        // Flatten: hoist the nested frame/group's already-peeled leaves up.
+        var hoist = childNode.children || [];
+        for (var j = 0; j < hoist.length; j++) children.push(hoist[j]);
+      }
+    }
+    // A styled frame/group holding its OWN inline text gets that label peeled
+    // into a live TMP child (prepended), so the frame raster can drop the text.
+    if ((kind === "sprite" || kind === "group") && hasOwnText(el)) {
+      children.unshift(ownTextLayer(el, cs, root));
     }
     if (children.length) node.children = children;
     return node;
   }
 
   // ---- component-root detection ----------------------------------------
-  // Each element with data-ui is a component. If none are tagged, treat every
-  // direct STYLED child block of <body> as its own component (so a multi-widget
-  // mockup exports several components).
+  // Priority 1: explicit data-ui tags win (author override).
+  // Priority 2 (zero-tag Claude Design HTML): auto-detect SEMANTIC widgets so a
+  //   raw mockup splits into reusable components without hand-tagging. We treat:
+  //     - every <button> as its own component (clear, reusable widget boundary), and
+  //     - styled panels (background/border/shadow) that contain NO button — e.g. an
+  //       info bar or a resource-counter cluster — as display components.
+  //   We skip the near-full-page wrapper (it's the screen, not a widget) and keep
+  //   only OUTERMOST panels so a panel and its inner panel aren't both exported.
+  // Priority 3: fall back to styled children of <body>, else <body> itself.
+  function isButtonEl(el) { return el.tagName && el.tagName.toLowerCase() === "button"; }
+
   function findComponentRoots() {
     var tagged = Array.prototype.slice.call(document.querySelectorAll("[data-ui]"))
       .filter(function (el) { return el.getAttribute("data-ui") !== "screen"; });
@@ -333,33 +393,65 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
     // INSIDE a screen for its child components instead of exporting the screen.
     if (tagged.length) return tagged;
 
-    var roots = [];
-    var body = document.body;
-    var kids = elChildren(body);
+    // --- auto-segmentation (no data-ui present) ---
+    // Auto-detect ONLY <button> elements: they are unambiguous, reusable widget
+    // boundaries. Non-button panels (info bars, counters, and especially the
+    // decorative corner-bracket accents Claude Design sprinkles via data-dc-tpl)
+    // are too noisy to infer reliably, so we do NOT auto-promote them — tag a
+    // panel with data-ui ("component"/"panel") to export it. This keeps the
+    // zero-tag default clean (one component per real button).
+    var buttons = Array.prototype.slice.call(document.querySelectorAll("button"))
+      .filter(function (el) {
+        var cs = getComputedStyle(el);
+        if (cs.display === "none" || cs.visibility === "hidden") return false;
+        var b = el.getBoundingClientRect();
+        return b.width >= 8 && b.height >= 8;
+      });
+    if (buttons.length) return buttons;
+
+    // --- priority 3: styled children of body, else body itself ---
+    var fallback = [];
+    var kids = elChildren(document.body);
     for (var i = 0; i < kids.length; i++) {
-      var el = kids[i];
-      var cs = getComputedStyle(el);
-      // A styled block (visible frame/container) or one that holds content.
-      if (hasBackground(cs) || hasBorder(cs) || hasShadow(cs) || el.children.length > 0 || hasOwnText(el)) {
-        roots.push(el);
+      var k = kids[i];
+      var kcs = getComputedStyle(k);
+      if (hasBackground(kcs) || hasBorder(kcs) || hasShadow(kcs) || k.children.length > 0 || hasOwnText(k)) {
+        fallback.push(k);
       }
     }
-    // Fallback: if body has only inline/styleless wrappers, use body itself.
-    return roots.length ? roots : [body];
+    return fallback.length ? fallback : [document.body];
+  }
+
+  // Component names must be unique ACROSS components (distinct output folders),
+  // while layer names reset per component. Use a separate persistent counter.
+  var compNameCounts = {};
+  function uniqueCompName(base) {
+    var b = (base || "component").replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "component";
+    compNameCounts[b] = (compNameCounts[b] || 0) + 1;
+    return compNameCounts[b] === 1 ? b : b + "_" + compNameCounts[b];
+  }
+  /** First 1-2 words of an element's text as a name slug (e.g. "PLAY" -> "play"). */
+  function slug(s) {
+    return (s || "").replace(/\\s+/g, " ").trim().split(" ").slice(0, 2).join("_").toLowerCase();
   }
 
   var out = [];
   var roots = findComponentRoots();
   for (var i = 0; i < roots.length; i++) {
-    nameCounts = {}; // names are unique per component
+    nameCounts = {}; // layer names unique WITHIN each component
     var rootEl = roots[i];
     var dataUi = rootEl.getAttribute("data-ui");
-    var compName = uniqueName(rootEl.getAttribute("data-name") || dataUi || "component");
+    var isBtn = isButtonEl(rootEl);
+    // archetype: explicit data-ui wins; a <button> root is a "button"; else "panel".
+    var archetype = dataUi || (isBtn ? "button" : "panel");
+    // name: data-name wins; a button gets a slug of its label; else the archetype.
+    var base = rootEl.getAttribute("data-name") || (isBtn ? (slug(textOf(rootEl)) || "button") : archetype);
+    var compName = uniqueCompName(base);
     var tree = buildLayer(rootEl, rootEl, rootEl.parentElement, 0);
     // The component wrapper itself is the first node; expose its archetype.
     out.push({
       name: compName,
-      archetype: dataUi || "component",
+      archetype: archetype,
       rect: absRect(rootEl),       // absolute design rect (informational)
       node: tree,                  // the layer tree rooted at the component
     });

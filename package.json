@@ -1,7 +1,7 @@
 {
   "name": "unimancer",
   "version": "0.1.0",
-  "description": "Command the Unity engine with AI \u2014 an MCP server with deep Android build tooling.",
+  "description": "Command the Unity engine with AI — an MCP server with deep Android build tooling.",
   "type": "module",
   "bin": {
     "unimancer": "src/index.js"
@@ -30,6 +30,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.24.1",
+    "playwright": "1.61.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

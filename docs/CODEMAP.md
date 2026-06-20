@@ -27,7 +27,16 @@ unimancer/
 │       ├── capture/          Visual capture → image results (Unity bridge)
 │       ├── ui/               uGUI authoring: ui_create / rect_transform_set / ui_dump / ui_build_from_manifest (Unity bridge)
 │       ├── sprites/          sprite_import / sprite_generate — TextureImporter + procedural PNGs (Unity bridge)
-│       └── bridge/           HTML→sprite: html_inventory / html_export — Playwright DOM decompose → layer assets + manifest (Node-only)
+│       └── bridge/           HTML→Unity art pipeline (Playwright). Files:
+│                               decompose.js   — shared browser-side DOM walk: component detection
+│                                                (data-ui → <button> auto-segment → body fallback) + layer
+│                                                classify (kind/format/9-slice/anchor), frame flatten, own-text peel
+│                               playwright.js  — lazy withPage() launcher (Chromium, deviceScaleFactor/viewport)
+│                               htmlInventory.js — html_inventory: dry-run decompose, no files (Node-only)
+│                               htmlExport.js  — html_export: write per-component PNG/SVG layers + manifest.json
+│                                                (omitBackground/animations-disabled PNG; SVG xmlns + CSS-var resolve)
+│                               html_to_unity.js — one-shot orchestrator: html_export → ui_build_from_manifest per
+│                                                manifest (export Node-only; build needs Unity)
 └── unity/                    ── the Unity UPM package (C#) ──
     ├── package.json          UPM manifest (com.unimancer.mcp)
     └── Editor/
@@ -75,6 +84,7 @@ Unity main thread (the bridge marshals it). Tools that span multiple frames
 | change the wire protocol | `core/unityConnection.js` **and** `Core/McpBridge.cs` (keep them in sync) |
 | change result shapes | `core/types.js` / `core/image.js` |
 | add a new tool group | new `src/tools/<group>/index.js` + import it in `src/tools/index.js` |
+| compose other tools (orchestrator) | import their tool objects, call `tool.handler(args, ctx)` directly, pass the **same `ctx`** through (see `bridge/html_to_unity.js`) |
 
 ## Conventions
 

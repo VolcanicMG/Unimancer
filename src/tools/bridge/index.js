@@ -1,6 +1,7 @@
-/** Bridge — HTML->Unity-sprite decomposition: dry-run inventory + asset/manifest export (Playwright, Node-only). */
+/** Bridge — HTML->Unity art pipeline: dry-run inventory, asset/manifest export, and a one-shot export+build orchestrator. */
 /** @type {import("../../core/types.js").ToolDefinition[]} */
 import { htmlInventory } from "./htmlInventory.js";
 import { htmlExport } from "./htmlExport.js";
+import { htmlToUnity } from "./html_to_unity.js";
 
-export const bridgeTools = [htmlInventory, htmlExport];
+export const bridgeTools = [htmlInventory, htmlExport, htmlToUnity];

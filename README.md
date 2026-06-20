@@ -2,7 +2,7 @@
 
 **Command the Unity engine with AI.** Unimancer is a Model Context Protocol (MCP)
 server that bridges AI assistants (Claude, Cursor, etc.) to the Unity Editor —
-with **105 tools** spanning the core editor surface *plus* first-class
+with **106 tools** spanning the core editor surface *plus* first-class
 **Android build & device tooling** that other Unity MCP servers don't have.
 
 ```
@@ -25,6 +25,22 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
    ```bash
    guard install      # or: npm install
    ```
+   The **HTML→Unity bridge** uses [Playwright](https://playwright.dev) (pinned
+   `playwright@1.61.0`) to rasterize/decompose mockups headlessly. The npm dep
+   ships the driver but **not** a browser engine — install Chromium once, and on
+   Linux/WSL its system libraries too:
+   ```bash
+   npx playwright install chromium
+   # Linux/WSL system libs Chromium needs at runtime:
+   sudo apt-get install -y libnspr4 libnss3 libdbus-1-3 libatk1.0-0t64 \
+     libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libatspi2.0-0t64 \
+     libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
+     libcairo2 libasound2t64
+   # (or, all at once: sudo npx playwright install-deps chromium)
+   ```
+   SVG icons exported by the bridge import into Unity as Sprites only with the
+   **`com.unity.vectorgraphics`** package installed (otherwise SVG layers degrade
+   with a clear message; PNG layers always work).
 2. **Connect your MCP client** — print ready-to-paste config + Unity steps:
    ```bash
    node scripts/setup.mjs           # prints config for Claude Code / Desktop / Cursor
@@ -90,7 +106,7 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 - [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
 - [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
 
-## Tools (105)
+## Tools (106)
 
 | Group | Count | Needs Unity? | Examples |
 |---|---|---|---|
@@ -104,7 +120,7 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 | Visual capture | 4 | yes | game view, scene view, camera, multi-angle (returned as images) |
 | uGUI authoring | 4 | yes | create UI archetypes, set RectTransform layout/presets, dump canvas tree, build a component from a bridge manifest |
 | Sprites | 2 | yes | import an image as a 9-slice sprite, procedurally generate sprite PNGs |
-| HTML→sprite bridge | 2 | no (Playwright) | inventory (dry-run) and export a Claude Design HTML mockup into per-component layer assets + a manifest |
+| HTML→Unity bridge | 3 | export: no (Playwright); build: yes | inventory (dry-run), export a Claude Design HTML mockup into per-component layer assets + a manifest, and `html_to_unity` (one-shot export **and** build in Unity) |
 
 ## Environment variables
 
@@ -126,6 +142,13 @@ of `npm install`; commits/pushes run `guard check` automatically.
 > `.guard-ignores` because Unimancer is **stdio-only and registers only tools** —
 > neither code path is reachable. Revisit if HTTP transport or resource templates
 > are ever added.
+
+> **Playwright note:** the HTML→Unity bridge pins **`playwright@1.61.0`** (exact).
+> It was published recently, so depguard's 14-day cooldown may hide it — if
+> `guard install` fails with `ETARGET`, install via
+> `npm install --save-exact playwright@1.61.0` and run `guard approve
+> playwright@1.61.0` (or `guard allow`) to satisfy the pre-commit/PR hook. **Do
+> not downgrade** — the version must match the installed Chromium build (1228).
 
 ## Adding a tool
 

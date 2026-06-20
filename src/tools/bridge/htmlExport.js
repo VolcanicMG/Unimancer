@@ -191,13 +191,40 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
   out.asset = `${relPrefix}/${fileName}`;
 
   if (node.format === "svg") {
-    // Extract the inline <svg> outerHTML and write it verbatim (no rasterize).
+    // Extract the inline <svg> outerHTML. Claude Design SVGs reference page-level
+    // CSS custom properties (e.g. fill="var(--td-accent)", filter glows via
+    // var(--td-glow)); standalone (as an <img> or a Unity asset) those :root vars
+    // are gone, so the icon renders colorless. We resolve every referenced custom
+    // property from the SVG's computed style and pin it inline on the <svg> root
+    // (custom props inherit, so all descendants' var() then resolve).
     const svg = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       if (!el) return null;
       // The selector may target the <svg> itself or a wrapper containing one.
       const svgEl = el.tagName.toLowerCase() === "svg" ? el : el.querySelector("svg");
-      return svgEl ? svgEl.outerHTML : null;
+      if (!svgEl) return null;
+      // An inline <svg> inherits the SVG/XLink namespaces from the HTML parser,
+      // so its outerHTML usually omits them. A STANDALONE .svg file MUST declare
+      // them or browsers/importers treat it as plain XML text (renders nothing).
+      if (!svgEl.getAttribute("xmlns")) svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      if (/xlink:/.test(svgEl.outerHTML) && !svgEl.getAttribute("xmlns:xlink")) {
+        svgEl.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+      }
+      const cs = getComputedStyle(svgEl);
+      // Collect every --custom-prop name referenced anywhere in the subtree.
+      const names = Array.from(
+        new Set((svgEl.outerHTML.match(/var\((--[\w-]+)/g) || []).map((m) => m.slice(4)))
+      );
+      const decls = names
+        .map((n) => [n, cs.getPropertyValue(n).trim()])
+        .filter(([, v]) => v.length > 0)
+        .map(([n, v]) => `${n}:${v}`)
+        .join(";");
+      if (decls) {
+        const prev = svgEl.getAttribute("style") || "";
+        svgEl.setAttribute("style", prev ? `${prev};${decls}` : decls);
+      }
+      return svgEl.outerHTML;
     }, node.selector);
     if (svg) {
       await writeFile(absAsset, svg, "utf8");
@@ -216,8 +243,15 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
         return;
       }
       // Element-clipped screenshot at the context's deviceScaleFactor; omitBackground
-      // gives us alpha where the page/body is transparent.
-      const buf = await handle.screenshot({ omitBackground: true });
+      // gives us alpha where the page/body is transparent. `animations:"disabled"`
+      // finishes+freezes CSS animations/transitions so animated mockups (pulsing
+      // glows, beams) don't fail the "element is stable" wait with a timeout;
+      // `caret:"hide"` keeps a stray text caret out of the raster.
+      const buf = await handle.screenshot({
+        omitBackground: true,
+        animations: "disabled",
+        caret: "hide",
+      });
       await writeFile(absAsset, buf);
       written.push(absAsset);
     });
@@ -258,18 +292,28 @@ function manifestType(kind) {
  * @returns {Promise<void>}
  */
 async function withSiblingLayersHidden(page, node, fn) {
-  // Collect the selectors of every text/icon child layer to suppress.
+  // Element child text/icon layers are hidden outright (visibility). Own-text
+  // labels share the frame's selector, so they can't be visibility-hidden
+  // without blanking the frame — they're dimmed to transparent color instead.
   const hideSelectors = collectChildLayerSelectors(node);
-  // Apply visibility:hidden inline, remembering prior inline values to restore.
-  await page.evaluate((sels) => {
+  const dimSelectors = collectOwnTextSelectors(node);
+  await page.evaluate(({ sels, dims }) => {
     window.__unimancerHidden = [];
+    window.__unimancerDimmed = [];
     for (const sel of sels) {
       const el = document.querySelector(sel);
       if (!el) continue;
       window.__unimancerHidden.push([sel, el.style.visibility]);
       el.style.visibility = "hidden";
     }
-  }, hideSelectors);
+    for (const sel of dims) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      window.__unimancerDimmed.push([sel, el.style.color, el.style.textShadow]);
+      el.style.color = "transparent";
+      el.style.textShadow = "none";
+    }
+  }, { sels: hideSelectors, dims: dimSelectors });
   try {
     await fn();
   } finally {
@@ -278,7 +322,12 @@ async function withSiblingLayersHidden(page, node, fn) {
         const el = document.querySelector(sel);
         if (el) el.style.visibility = prev || "";
       }
+      for (const [sel, c, ts] of window.__unimancerDimmed || []) {
+        const el = document.querySelector(sel);
+        if (el) { el.style.color = c || ""; el.style.textShadow = ts || ""; }
+      }
       delete window.__unimancerHidden;
+      delete window.__unimancerDimmed;
     });
   }
 }
@@ -296,7 +345,31 @@ function collectChildLayerSelectors(node) {
   const visit = (n) => {
     if (!n.children) return;
     for (const c of n.children) {
+      // Own-text labels share the frame selector — never visibility-hide them
+      // (that would blank the frame); they're dimmed via collectOwnTextSelectors.
+      if (c.ownText) { visit(c); continue; }
       if ((c.kind === "text" || c.kind === "icon") && c.selector) acc.push(c.selector);
+      visit(c);
+    }
+  };
+  visit(node);
+  return acc;
+}
+
+/**
+ * Gather selectors of own-text label layers (text that lives directly on a
+ * styled frame, sharing its selector). The exporter dims these to transparent
+ * during the frame screenshot so the label doesn't bake into the frame raster.
+ *
+ * @param {object} node - the frame node.
+ * @returns {string[]} selectors to dim.
+ */
+function collectOwnTextSelectors(node) {
+  const acc = [];
+  const visit = (n) => {
+    if (!n.children) return;
+    for (const c of n.children) {
+      if (c.ownText && c.selector) acc.push(c.selector);
       visit(c);
     }
   };

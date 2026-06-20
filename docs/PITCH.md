@@ -49,7 +49,8 @@ via `adb forward`). Editor + runtime + Android together is unique to Unimancer.
 - **The AI can see** — capture tools return the Game/Scene view as images.
 
 ### 4. Lean and supply-chain-safe
-Two runtime deps (`@modelcontextprotocol/sdk` + `zod`), pinned exact, guarded by
+Three runtime deps (`@modelcontextprotocol/sdk` + `zod`, plus `playwright` for the
+HTML→Unity bridge), pinned exact, guarded by
 [depguard]. SDK deliberately pinned to dodge known transitive CVEs; every C# file
 writer is path-guarded; the runtime bridge **never opens a socket in release builds.**
 
@@ -58,7 +59,17 @@ Uses a raw **TCP** line protocol — not WebSocket — because Unity's Mono runt
 can't perform server-side WebSocket upgrades (a trap that bites HttpListener-based
 implementations). Domain-reload-safe, auto-reconnecting, one-command setup.
 
-### 6. A real in-Editor AI chat — on your subscription
+### 6. An HTML→Unity art pipeline (nobody else has this)
+Hand it a **Claude Design HTML mockup** and it becomes real Unity UI. The `bridge`
+group drives headless Chromium (Playwright) to **decompose** each widget into
+separate layers — the frame sprite *without* its text, icons peeled out, live text
+kept as TMP — auto-detecting `<button>` components, computing 9-slices from CSS,
+emitting transparent PNGs and standalone SVGs (with namespaces + CSS-var colors
+resolved), then **reassembles** them into a GameObject tree in the Editor.
+`html_to_unity` does the whole thing — design → built UI — in **one call**. The
+upshot: AI can author UI in HTML (its native medium) and ship it as native uGUI.
+
+### 7. A real in-Editor AI chat — on your subscription
 A chat panel **inside Unity** (Window → Unimancer → Chat) drives the `claude` CLI
 headless, so it runs on your **Claude subscription, not a pay-per-token API key**, and
 inherits the full tool surface. It streams replies with inline **Edit/Write diffs**,
@@ -76,12 +87,13 @@ rides a **self-healing bridge**. No external editor or API key required.
 | Android device control (adb/logcat/screenshot) | ✅ 23 tools | ❌ | ❌ |
 | Android build (APK/AAB, keystore, AGP 9) | ✅ | partial | ❌ |
 | Drive a *running* game | ✅ (Play + dev build + device) | ❌ | ✅ (no mobile) |
-| Total tools | **105** | ~15–86 | ~20 |
+| Total tools | **106** | ~15–86 | ~20 |
+| HTML mockup → native Unity UI pipeline | ✅ (Playwright decompose + build) | ❌ | ❌ |
 | Batch / resources / notifications | ✅ all three | some | some |
 | Image capture returned to the model | ✅ | some | rare |
 | In-Editor AI chat (no API key, on subscription) | ✅ | ❌ | ❌ |
 | Roslyn syntax validation | ✅ | some | ❌ |
-| Runtime deps | **2** (pinned, guarded) | varies | varies |
+| Runtime deps | **3** (pinned, guarded; `playwright` for the HTML bridge) | varies | varies |
 
 ---
 
