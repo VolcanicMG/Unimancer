@@ -209,6 +209,12 @@ Requirements & notes:
 - **Usage/cost** — each turn shows tokens used (in↑/out↓) and per-turn cost on its
   "Worked for" line; a running session total (Σ tokens · $) sits in the header. Parsed
   from the `result` event's `usage`/`total_cost_usd` (resets when the window reloads).
+- **Subscription limit badges** — next to the `ctx` bar the header shows a status-colored
+  dot + window label + time-to-reset for your Claude **5-hour** (`5h`) and **weekly** (`wk`)
+  limits (e.g. `● 5h 2h14m`; hover for the exact reset time). Green = headroom, amber =
+  using overage, red = limit reached. Parsed from claude's `rate_limit_event`, which carries
+  per-window **status + reset time** — not an exact percentage (that's only in Claude Code's
+  own statusline). A window's badge appears once claude has reported it this session.
 - **Permission mode** (Settings) — **Auto-approve** (agent acts) or **Plan (propose only)**
   (`--permission-mode plan`: the agent proposes changes without executing — review, then
   switch to Auto and tell it to proceed).

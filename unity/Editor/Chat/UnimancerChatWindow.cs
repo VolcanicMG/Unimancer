@@ -61,6 +61,10 @@ namespace Unimancer
         private long _sessTokIn, _sessTokOut; // running token totals for this window session
         private double _sessCost;             // running cost total ($) for this window session
         private string _lastTurnUsage = "";   // per-turn usage suffix appended to the "Worked for" line
+        private long _lastCtxTokens;          // latest turn's prompt size (≈ current context-window occupancy)
+        // Latest subscription rate-limit windows (from claude's rate_limit_event); 0 reset = unknown.
+        private long _rl5ResetsAt; private string _rl5Status = ""; private bool _rl5Overage;
+        private long _rl7ResetsAt; private string _rl7Status = ""; private bool _rl7Overage;
         private Vector2 _inputScroll; // vertical scroll inside the fixed-height input box
         private int _streamIndex = -1;     // index of the assistant line being streamed into
         private bool _gotDeltas;           // did this turn stream any text?
@@ -228,8 +232,13 @@ namespace Unimancer
                         _sessTokIn += ev.InTok + ev.CacheTok;
                         _sessTokOut += ev.OutTok;
                         _sessCost += ev.Cost;
+                        _lastCtxTokens = ev.InTok + ev.CacheTok; // prompt sent this turn ≈ context in use
                         _lastTurnUsage = "   ·   " + FormatTokens(ev.InTok + ev.CacheTok) + "↑ " + FormatTokens(ev.OutTok) + "↓"
                                          + (ev.Cost > 0 ? "  ·  $" + ev.Cost.ToString("0.000") : "");
+                        break;
+                    case ChatEventKind.RateLimit:
+                        if (ev.RlType == "seven_day") { _rl7ResetsAt = ev.RlResetsAt; _rl7Status = ev.RlStatus; _rl7Overage = ev.RlOverage; }
+                        else { _rl5ResetsAt = ev.RlResetsAt; _rl5Status = ev.RlStatus; _rl5Overage = ev.RlOverage; }
                         break;
                     case ChatEventKind.Result:
                         if (!_gotDeltas && !string.IsNullOrEmpty(ev.Text))
@@ -374,6 +383,45 @@ namespace Unimancer
             }
         }
 
+        /// <summary>
+        /// Draw a compact subscription rate-limit badge: a status-colored dot + window label +
+        /// time until reset (e.g. "● 5h 2h14m"), with the exact reset clock-time in the tooltip.
+        /// Data comes from claude's rate_limit_event — status + reset time per window, not an
+        /// exact percentage. No-op until a reset time is known for the window.
+        /// </summary>
+        /// <param name="label">Short window label ("5h" for five-hour, "wk" for weekly).</param>
+        /// <param name="status">Window status ("allowed" = headroom; anything else is constrained).</param>
+        /// <param name="resetsAt">Unix epoch seconds when the window resets (0 = unknown → skipped).</param>
+        /// <param name="overage">Whether the window is currently drawing on overage credit.</param>
+        private void DrawRateLimitBadge(string label, string status, long resetsAt, bool overage)
+        {
+            if (resetsAt <= 0) return;
+            bool ok = status == "allowed" && !overage;
+            // green = headroom, amber = on overage, red = constrained (warning/rejected).
+            Color dot = ok ? new Color(0.5f, 1f, 0.5f)
+                      : overage ? new Color(1f, 0.8f, 0.4f)
+                      : new Color(1f, 0.5f, 0.5f);
+            var style = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = dot } };
+            string tip = (ok ? "within limit" : overage ? "using overage" : "limit reached")
+                         + " · resets " + FormatResetClock(resetsAt);
+            GUILayout.Label(new GUIContent("● " + label + " " + FormatResetCountdown(resetsAt), tip), style);
+        }
+
+        /// <summary>Format seconds-until-reset compactly: "2h14m" / "9m" / "now".</summary>
+        private static string FormatResetCountdown(long resetsAtEpoch)
+        {
+            long secs = resetsAtEpoch - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (secs <= 0) return "now";
+            long h = secs / 3600, m = (secs % 3600) / 60;
+            return h > 0 ? h + "h" + m + "m" : m + "m";
+        }
+
+        /// <summary>Format a reset epoch as a local wall-clock time for the badge tooltip.</summary>
+        private static string FormatResetClock(long resetsAtEpoch)
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(resetsAtEpoch).ToLocalTime().ToString("h:mmtt");
+        }
+
         private void DrawHeader()
         {
             EditorGUILayout.Space(4);
@@ -383,6 +431,17 @@ namespace Unimancer
                 var vStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
                 GUILayout.Label("v" + Version, vStyle);
                 GUILayout.FlexibleSpace();
+                if (_lastCtxTokens > 0)
+                {
+                    // 200k for standard models, 1M when the prompt clearly exceeds 200k.
+                    long ctxWindow = _lastCtxTokens <= 200000 ? 200000 : 1000000;
+                    float pct = Mathf.Clamp01(_lastCtxTokens / (float)ctxWindow);
+                    var barRect = GUILayoutUtility.GetRect(150f, 16f, GUILayout.Width(150f));
+                    EditorGUI.ProgressBar(barRect, pct,
+                        "ctx " + Mathf.RoundToInt(pct * 100f) + "% (" + FormatTokens(_lastCtxTokens) + "/" + FormatTokens(ctxWindow) + ")");
+                }
+                DrawRateLimitBadge("5h", _rl5Status, _rl5ResetsAt, _rl5Overage);
+                DrawRateLimitBadge("wk", _rl7Status, _rl7ResetsAt, _rl7Overage);
                 if (_sessTokIn + _sessTokOut > 0)
                 {
                     var uStyle = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = new Color(0.6f, 0.6f, 0.6f) } };
@@ -544,8 +603,13 @@ namespace Unimancer
             return s < 60 ? s + "s" : (s / 60) + "m " + (s % 60) + "s";
         }
 
-        /// <summary>Compact token count: 123 or 1.2k.</summary>
-        private static string FormatTokens(long n) => n < 1000 ? n.ToString() : (n / 1000.0).ToString("0.#") + "k";
+        /// <summary>Compact token count: 123, 1.2k, or 1m.</summary>
+        private static string FormatTokens(long n)
+        {
+            if (n >= 1000000) return (n / 1000000.0).ToString("0.#") + "m";
+            if (n >= 1000) return (n / 1000.0).ToString("0.#") + "k";
+            return n.ToString();
+        }
 
         /// <summary>Draw an inline image, scaled to fit the window width (capped height).</summary>
         private void DrawImageLine(Texture2D tex)
@@ -563,20 +627,29 @@ namespace Unimancer
         /// <param name="raw">Lines prefixed "- " removed / "+ " added / "§ " header.</param>
         private void DrawDiff(string raw)
         {
-            var sb = new StringBuilder();
-            foreach (var ln in (raw ?? "").Split('\n'))
+            // Render line-by-line with rich text OFF and the color set on the style, so
+            // code with < and > (e.g. Dictionary<K,V>) prints verbatim. (Using <color>
+            // tags would force HTML-escaping, and IMGUI shows "&lt;" literally.)
+            GUIStyle Line(Color c) => new GUIStyle(EditorStyles.label)
             {
-                string color = null;
-                if (ln.StartsWith("+")) color = "#6ac46a";        // added → green
-                else if (ln.StartsWith("-")) color = "#e06c6c";   // removed → red
-                else if (ln.StartsWith("§")) color = "#9aa0a6";   // header → grey
-                var e = EscapeForRichText(ln);
-                if (color != null) sb.Append("<color=").Append(color).Append('>').Append(e).Append("</color>\n");
-                else sb.Append(e).Append('\n');
-            }
-            var style = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true, fontSize = 11 };
+                richText = false,
+                wordWrap = true,
+                fontSize = 11,
+                normal = { textColor = c },
+            };
+            var add = Line(new Color(0.42f, 0.77f, 0.42f));   // added → green
+            var rem = Line(new Color(0.88f, 0.42f, 0.42f));   // removed → red
+            var hdr = Line(new Color(0.60f, 0.63f, 0.65f));   // header → grey
+            var ctx = Line(new Color(0.80f, 0.80f, 0.80f));   // context
+
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                EditorGUILayout.LabelField(sb.ToString().TrimEnd('\n'), style);
+                foreach (var ln in (raw ?? "").Split('\n'))
+                {
+                    var st = ln.StartsWith("+") ? add
+                           : ln.StartsWith("-") ? rem
+                           : ln.StartsWith("§") ? hdr : ctx;
+                    EditorGUILayout.LabelField(ln, st);
+                }
         }
 
         private static readonly Regex RefRx = new Regex(@"\[\[unity:(.+?)\]\]", RegexOptions.Compiled);
@@ -664,8 +737,23 @@ namespace Unimancer
         /// <summary>Render a non-code block, line by line, with markdown-lite formatting.</summary>
         private void DrawMarkdownText(string text, GUIStyle baseStyle, List<string> handles)
         {
-            foreach (var raw in text.Split('\n'))
+            var lines = text.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
             {
+                var raw = lines[i];
+
+                // Markdown table: a "| … |" row immediately followed by a "|---|---|" rule.
+                if (raw.Contains("|") && i + 1 < lines.Length && IsTableSeparator(lines[i + 1]))
+                {
+                    var rows = new List<string[]> { SplitRow(raw) };
+                    i += 2; // skip the header + separator rows
+                    while (i < lines.Length && lines[i].Contains("|") && lines[i].Trim().Length > 0)
+                        rows.Add(SplitRow(lines[i++]));
+                    i--; // the for-loop will advance past the last consumed row
+                    DrawTable(rows, handles);
+                    continue;
+                }
+
                 if (raw.Trim().Length == 0) { GUILayout.Space(3); continue; }
                 var trimmed = raw.TrimStart();
                 string content = raw;
@@ -675,6 +763,73 @@ namespace Unimancer
                 else if (trimmed.StartsWith("# ")) { content = trimmed.Substring(2); style = Heading(15); }
                 else if (trimmed.StartsWith("- ") || trimmed.StartsWith("* ")) { content = "  • " + trimmed.Substring(2); }
                 EditorGUILayout.LabelField(FormatInline(content, handles), style);
+            }
+        }
+
+        /// <summary>True for a markdown table rule row, e.g. "|----|:--:|" (only | - : spaces).</summary>
+        private static bool IsTableSeparator(string line)
+        {
+            var t = line.Trim();
+            if (t.IndexOf('-') < 0) return false;
+            foreach (var ch in t)
+                if (ch != '|' && ch != '-' && ch != ':' && ch != ' ') return false;
+            return true;
+        }
+
+        /// <summary>Split a "| a | b |" row into trimmed cells (outer pipes dropped).</summary>
+        private static string[] SplitRow(string line)
+        {
+            var t = line.Trim();
+            if (t.StartsWith("|")) t = t.Substring(1);
+            if (t.EndsWith("|")) t = t.Substring(0, t.Length - 1);
+            var parts = t.Split('|');
+            for (int i = 0; i < parts.Length; i++) parts[i] = parts[i].Trim();
+            return parts;
+        }
+
+        /// <summary>Render parsed table rows as an aligned grid (bold header + hairline), cells in equal columns.</summary>
+        private void DrawTable(List<string[]> rows, List<string> handles)
+        {
+            if (rows.Count == 0) return;
+            int cols = 0;
+            foreach (var r in rows) cols = Mathf.Max(cols, r.Length);
+            if (cols == 0) return;
+
+            // Budget the visible width from the actual window (position.width is reliable;
+            // currentViewWidth is off inside the scroll view). Subtract the vertical
+            // scrollbar + helpBox padding + outer margins, then the per-column gaps
+            // (divider + layout spacing), so the row never overflows the right edge.
+            float avail = Mathf.Max(120f, position.width - 50f);
+            float gaps = (cols - 1) * 8f;
+            float colW = Mathf.Max(36f, (avail - gaps) / cols);
+            var cellStyle = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true };
+            var headStyle = new GUIStyle(EditorStyles.boldLabel) { richText = true, wordWrap = true };
+
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                        for (int c = 0; c < cols; c++)
+                        {
+                            var cell = c < rows[r].Length ? rows[r][c] : "";
+                            EditorGUILayout.LabelField(FormatInline(cell, handles), r == 0 ? headStyle : cellStyle, GUILayout.Width(colW));
+                            if (c < cols - 1)
+                            {
+                                // 1px column divider, stretched to the row height.
+                                var vr = GUILayoutUtility.GetRect(5f, 1f, GUILayout.Width(5f), GUILayout.ExpandHeight(true));
+                                EditorGUI.DrawRect(new Rect(vr.x + 2f, vr.y, 1f, vr.height), new Color(1f, 1f, 1f, 0.10f));
+                            }
+                        }
+                    // Rule under the header (stronger) and a faint divider between data rows.
+                    if (r < rows.Count - 1)
+                    {
+                        GUILayout.Space(2f);
+                        var hr = GUILayoutUtility.GetRect(1f, 1f, GUILayout.ExpandWidth(true));
+                        EditorGUI.DrawRect(hr, new Color(1f, 1f, 1f, r == 0 ? 0.18f : 0.07f));
+                        GUILayout.Space(2f);
+                    }
+                }
             }
         }
 
@@ -800,9 +955,14 @@ namespace Unimancer
             DrawQueued();
             using (new EditorGUILayout.HorizontalScope())
             {
-                // Ctrl+Enter sends.
+                // Enter sends; Shift+Enter inserts a newline. Gated on input focus so a
+                // stray Enter elsewhere doesn't send. Runs before the TextArea draws, so
+                // e.Use() stops the newline from being inserted on a plain Enter.
                 var e = Event.current;
-                if (e.type == EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) && (e.control || e.command))
+                if (e.type == EventType.KeyDown
+                    && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
+                    && !e.shift
+                    && GUI.GetNameOfFocusedControl() == "UnimancerInput")
                 {
                     SendCurrent();
                     e.Use();
@@ -856,7 +1016,7 @@ namespace Unimancer
                         _session.Cancel();
                 }
             }
-            EditorGUILayout.LabelField("Ctrl+Enter to send", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("Enter to send  ·  Shift+Enter for a new line", EditorStyles.miniLabel);
         }
 
         private void SendCurrent()
@@ -1201,6 +1361,7 @@ namespace Unimancer
             _session?.Cancel();
             _session = null;
             _lines.Clear();
+            _lastCtxTokens = 0; _lastTurnUsage = ""; // ctx badge hides until this chat's first turn reports usage
             _streamIndex = -1;
             _convId = null;
             _convTitle = null;
@@ -1249,6 +1410,7 @@ namespace Unimancer
             _session?.Cancel();
             _session = null; // rebuilt on next send with current settings
             _lines.Clear();
+            _lastCtxTokens = 0; _lastTurnUsage = ""; // ctx unknown for the resumed chat until its next turn emits usage
             foreach (var dto in c.lines)
                 _lines.Add(new Line { Role = (Role)dto.role, Text = dto.text });
             _convId = c.id;

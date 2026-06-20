@@ -28,7 +28,9 @@ namespace Unimancer
         /// <summary>A file Edit/Write/MultiEdit; Text holds a prefixed diff (- removed, + added, § header).</summary>
         Diff,
         /// <summary>Per-turn token/cost usage parsed from the result event (InTok/OutTok/CacheTok/Cost).</summary>
-        Usage
+        Usage,
+        /// <summary>A subscription rate-limit update (5-hour / weekly window): RlType/RlStatus/RlResetsAt/RlOverage.</summary>
+        RateLimit
     }
 
     /// <summary>One parsed event from the stream-json output, consumed on the main thread.</summary>
@@ -41,6 +43,10 @@ namespace Unimancer
         public int OutTok;     // output tokens (Usage)
         public int CacheTok;   // cache read+creation tokens (Usage)
         public double Cost;     // total_cost_usd for the turn (Usage)
+        public string RlType;   // rate-limit window: "five_hour" | "seven_day" (RateLimit)
+        public string RlStatus; // window status: "allowed" | otherwise constrained (RateLimit)
+        public long RlResetsAt; // unix epoch seconds when the window resets (RateLimit)
+        public bool RlOverage;  // true if the window is currently drawing on overage (RateLimit)
     }
 
     /// <summary>
@@ -326,6 +332,21 @@ namespace Unimancer
                         CacheTok = ((int?)usage?["cache_read_input_tokens"] ?? 0) + ((int?)usage?["cache_creation_input_tokens"] ?? 0),
                         Cost = (double?)o["total_cost_usd"] ?? 0,
                     });
+                    break;
+
+                case "rate_limit_event":
+                    // Subscription window status (5-hour / weekly). The headless stream gives
+                    // status + reset time per window, not an exact percentage.
+                    var rl = o["rate_limit_info"];
+                    if (rl != null)
+                        Events.Enqueue(new ChatEvent
+                        {
+                            Kind = ChatEventKind.RateLimit,
+                            RlType = (string)rl["rateLimitType"] ?? "",
+                            RlStatus = (string)rl["status"] ?? "",
+                            RlResetsAt = (long?)rl["resetsAt"] ?? 0,
+                            RlOverage = (bool?)rl["isUsingOverage"] ?? false,
+                        });
                     break;
             }
         }
