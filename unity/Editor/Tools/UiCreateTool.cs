@@ -308,7 +308,7 @@ namespace Unimancer
         private static GameObject EnsureCanvas()
         {
 #if UNITY_2023_1_OR_NEWER
-            var existing = UnityEngine.Object.FindFirstObjectByType<Canvas>();
+            var existing = UnityEngine.Object.FindAnyObjectByType<Canvas>();
 #else
             var existing = UnityEngine.Object.FindObjectOfType<Canvas>();
 #endif
@@ -323,7 +323,7 @@ namespace Unimancer
         private static void EnsureEventSystem()
         {
 #if UNITY_2023_1_OR_NEWER
-            var existing = UnityEngine.Object.FindFirstObjectByType<EventSystem>();
+            var existing = UnityEngine.Object.FindAnyObjectByType<EventSystem>();
 #else
             var existing = UnityEngine.Object.FindObjectOfType<EventSystem>();
 #endif
