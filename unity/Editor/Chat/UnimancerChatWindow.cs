@@ -332,7 +332,10 @@ namespace Unimancer
                 {
                     var toolsRect = GUILayoutUtility.GetLastRect();
                     var menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("HTML → Unity (build from HTML file)"), false, () => RunHtmlBridge(true));
+                    // A disabled item renders as a non-clickable section heading describing the group.
+                    menu.AddDisabledItem(new GUIContent("HTML → Unity bridge — build UGUI from a Claude Design HTML file"));
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent("Build from HTML file"), false, () => RunHtmlBridge(true));
                     menu.AddItem(new GUIContent("Preview HTML (inventory, no write)"), false, () => RunHtmlBridge(false));
                     menu.DropDown(toolsRect);
                 }
