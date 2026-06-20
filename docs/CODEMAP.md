@@ -30,17 +30,18 @@ unimancer/
 │       └── bridge/           HTML→Unity art pipeline (Playwright). Files:
 │                               decompose.js   — shared browser-side DOM walk: component detection
 │                                                (data-ui → <button> auto-segment → body fallback) + layer
-│                                                classify (kind/format/9-slice/anchor); peels EVERY visual layer
+│                                                classify (kind/format[glowing inline-svg→png]/9-slice/anchor); peels EVERY visual layer
 │                                                (text/icon/nested sprite), flattens only unstyled groups; own-text peel
 │                               playwright.js  — lazy withPage() launcher (Chromium, deviceScaleFactor/viewport)
-│                               layers.js      — shared withIsolatedElement(): hide a layer's text/icon/sprite children +
-│                                                clear ancestor backdrops → shape-accurate TRANSPARENT crops (no black corners)
+│                               layers.js      — shared captureLayerPng(): isolate a layer (hide content children + siblings,
+│                                                clear ancestor/own box-shadow rings) and screenshot it transparent, padded to
+│                                                include its drop-shadow GLOW → shape-accurate, glow-inclusive sprite crops
 │                               htmlInventory.js — html_inventory: dry-run decompose, no files (Node-only)
 │                               htmlPreview.js — html_preview: full crop + ONE crop per separated layer (frame, sub-sprites,
 │                                                icons) rasterized in isolation via layers.js, 9-slice drawn on sprites that
 │                                                have one — inline OR outDir + preview-index.json for the popout (Node-only)
 │                               htmlExport.js  — html_export: write per-component PNG/SVG layers + manifest.json
-│                                                (omitBackground + ancestor-backdrop clear → transparent shape; SVG xmlns + CSS-var resolve)
+│                                                (PNG via captureLayerPng → transparent shape + glow; SVG xmlns + CSS-var resolve)
 │                               html_to_unity.js — one-shot orchestrator: html_export → ui_build_from_manifest per
 │                                                manifest (export Node-only; build needs Unity)
 └── unity/                    ── the Unity UPM package (C#) ──

@@ -33,7 +33,7 @@ import { resolve, join, isAbsolute } from "node:path";
 import { stat, mkdir, writeFile } from "node:fs/promises";
 import { withPage } from "./playwright.js";
 import { decomposePage } from "./decompose.js";
-import { withIsolatedElement } from "./layers.js";
+import { captureLayerPng } from "./layers.js";
 
 /** @type {import("../../core/types.js").ToolDefinition} */
 export const htmlPreview = {
@@ -91,15 +91,11 @@ export const htmlPreview = {
             // (2) One crop per visual layer (sprite|icon), rasterized in isolation.
             const layers = [];
             for (const ln of collectVisualLayers(comp.node, [])) {
-              let buf = null;
-              await withIsolatedElement(page, ln, async () => {
-                if (ln.kind === "sprite" && Array.isArray(ln.nineSlice)) {
-                  await page.evaluate(DRAW_NODE_FN, { node: ln, design: decomp.design });
-                }
-                const h = await page.$(ln.selector);
-                if (h) buf = await h.screenshot({ omitBackground: true, animations: "disabled", caret: "hide" });
-                await page.evaluate(CLEAR_FN);
-              });
+              const drawOverlay =
+                ln.kind === "sprite" && Array.isArray(ln.nineSlice)
+                  ? async () => { await page.evaluate(DRAW_NODE_FN, { node: ln, design: decomp.design }); }
+                  : undefined;
+              const buf = await captureLayerPng(page, ln, { drawOverlay });
               if (buf) layers.push({ name: ln.name, kind: ln.kind, border: Array.isArray(ln.nineSlice) ? ln.nineSlice : null, buf });
             }
 
@@ -270,8 +266,3 @@ const DRAW_NODE_FN = (payload) => {
   return 1;
 };
 
-/** Remove the in-page overlay layer (between layer crops). */
-const CLEAR_FN = () => {
-  const o = document.getElementById("__unimancer_ov");
-  if (o) o.remove();
-};

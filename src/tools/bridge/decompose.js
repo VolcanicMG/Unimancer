@@ -293,9 +293,16 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
   }
 
   /** Inferred export format for a layer kind + element. */
-  function inferFormat(el, kind, dataFormat) {
+  function inferFormat(el, kind, dataFormat, cs) {
     if (dataFormat === "svg" || dataFormat === "png") return dataFormat;
-    if (isInlineSvg(el)) return "svg"; // keep inline <svg> vector
+    if (isInlineSvg(el)) {
+      // A CSS filter (e.g. drop-shadow) glow is NOT part of the SVG markup, so a
+      // verbatim .svg would lose it. Rasterize those icons to PNG instead so the glow
+      // is baked in (captureLayerPng expands the crop to include it). Glow-less icons
+      // stay vector .svg for scalability.
+      if (cs && cs.filter && cs.filter !== "none") return "png";
+      return "svg";
+    }
     return "png";
   }
 
@@ -366,14 +373,14 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
     }
 
     if (kind === "icon") {
-      node.format = inferFormat(el, kind, dataFormat);
+      node.format = inferFormat(el, kind, dataFormat, cs);
       // icons never get a 9-slice
       node.nineSlice = null;
       return node;
     }
 
     if (kind === "sprite") {
-      node.format = inferFormat(el, kind, dataFormat); // usually png
+      node.format = inferFormat(el, kind, dataFormat, cs); // usually png
       // 9-slice: honor data-9slice (none | "L T R B" | auto), else auto.
       if (dataSlice === "none") {
         node.nineSlice = null;

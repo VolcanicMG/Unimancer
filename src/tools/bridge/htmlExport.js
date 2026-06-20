@@ -30,7 +30,7 @@ import { resolve, join, isAbsolute } from "node:path";
 import { stat, mkdir, writeFile } from "node:fs/promises";
 import { withPage } from "./playwright.js";
 import { decomposePage } from "./decompose.js";
-import { withIsolatedElement } from "./layers.js";
+import { captureLayerPng } from "./layers.js";
 
 /** @type {import("../../core/types.js").ToolDefinition} */
 export const htmlExport = {
@@ -235,27 +235,16 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
       out.warning = "no inline <svg> found at selector; asset not written";
     }
   } else {
-    // PNG: hide OTHER (text + icon) layers within this component, screenshot the
-    // element's box with a transparent background, then restore visibility.
-    await withIsolatedElement(page, node, async () => {
-      const handle = await page.$(node.selector);
-      if (!handle) {
-        out.warning = "selector not found; asset not written";
-        return;
-      }
-      // Element-clipped screenshot at the context's deviceScaleFactor; omitBackground
-      // gives us alpha where the page/body is transparent. `animations:"disabled"`
-      // finishes+freezes CSS animations/transitions so animated mockups (pulsing
-      // glows, beams) don't fail the "element is stable" wait with a timeout;
-      // `caret:"hide"` keeps a stray text caret out of the raster.
-      const buf = await handle.screenshot({
-        omitBackground: true,
-        animations: "disabled",
-        caret: "hide",
-      });
+    // PNG: rasterize JUST this layer — content children hidden, siblings hidden,
+    // ancestor/own box-shadow rings cleared, and the capture expanded to include any
+    // drop-shadow glow (see captureLayerPng). Transparent everywhere it doesn't paint.
+    const buf = await captureLayerPng(page, node);
+    if (!buf) {
+      out.warning = "selector not found; asset not written";
+    } else {
       await writeFile(absAsset, buf);
       written.push(absAsset);
-    });
+    }
   }
 
   // Recurse into children (e.g. a frame's nested icon/text peeled out separately).
