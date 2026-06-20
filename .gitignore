@@ -20,3 +20,6 @@ unity/**/Library/
 unity/**/Temp/
 unity/**/Logs/
 unity/**/obj/
+
+# Claude Code (local worktrees, session state — never commit)
+.claude/
