@@ -326,6 +326,12 @@ namespace Unimancer
                 using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_lastError)))
                     if (GUILayout.Button("Fix last error", EditorStyles.toolbarButton))
                         SetInput("Fix this Unity console error:\n" + _lastError + "\n" + _lastErrorStack);
+                // HTML->Unity bridge: pick a Claude Design HTML file and run the
+                // export/build (or a dry-run preview) via the headless agent's MCP tools.
+                if (GUILayout.Button("HTML → Unity", EditorStyles.toolbarButton))
+                    RunHtmlBridge(true);
+                if (GUILayout.Button("Preview HTML", EditorStyles.toolbarButton))
+                    RunHtmlBridge(false);
                 GUILayout.FlexibleSpace();
                 EditorGUI.BeginChangeCheck();
                 _syncSelection = GUILayout.Toggle(_syncSelection, "Sync selection", EditorStyles.toolbarButton);
@@ -345,6 +351,31 @@ namespace Unimancer
             _input = text;
             GUI.FocusControl(null);
             EditorGUIUtility.editingTextField = false;
+            Repaint();
+        }
+
+        /// <summary>
+        /// Pick a Claude Design HTML file and dispatch a bridge turn to the headless
+        /// agent. When <paramref name="build"/> is true it runs the html_to_unity MCP
+        /// tool (decompose into PNG/SVG layers + manifest, then reassemble as UGUI);
+        /// otherwise it runs html_inventory as a dry-run preview (writes nothing).
+        /// Reuses the normal turn dispatch so it honors the busy/queue state.
+        /// </summary>
+        /// <param name="build">True = export + build in Unity; false = inventory preview only.</param>
+        private void RunHtmlBridge(bool build)
+        {
+            var path = EditorUtility.OpenFilePanel("Select Claude Design HTML", "", "html");
+            if (string.IsNullOrEmpty(path)) return;
+            var file = System.IO.Path.GetFileName(path);
+            string prompt = build
+                ? "Use the html_to_unity MCP tool to build the UI from this Claude Design HTML file into Unity: \"" + path + "\". " +
+                  "It decomposes each widget into transparent PNG/SVG layers plus a manifest and reassembles them as UGUI under a Canvas. " +
+                  "Run html_inventory first to preview the components, then export and build, and summarize what you created."
+                : "Run the html_inventory MCP tool on this Claude Design HTML file and give me a concise list of the components and layers it detects \u2014 no files written: \"" + path + "\".";
+            var display = (build ? "\U0001F3A8 Build HTML \u2192 Unity: " : "\U0001F50D Preview HTML: ") + file;
+            var pending = new Pending { Display = display, Prompt = prompt, Title = display };
+            GUI.FocusControl(null);
+            if (EnsureSession().IsBusy) _queued.Add(pending); else DispatchTurn(pending);
             Repaint();
         }
 
