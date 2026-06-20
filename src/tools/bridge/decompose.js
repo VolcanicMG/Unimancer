@@ -496,7 +496,35 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
  * @returns {Promise<{design:{width:number,height:number}, components:Array}>}
  *   the decomposition: design size + an array of components, each with a layer tree.
  */
+/**
+ * CSS injected before measuring/screenshotting to settle animations to a clean
+ * resting frame. Rather than a blunt `animation:none` (which would strip
+ * entrance animations and leave fade/slide-in elements at their hidden base
+ * state), we force EVERY animation — including infinite loops like pulsing
+ * glows and shine sweeps — to run a single ~instant iteration and HOLD its
+ * final keyframe (`fill-mode:forwards`), and kill transitions. That avoids
+ * capturing an element mid-pulse (which made exported frames look "weird")
+ * while keeping intended end states visible.
+ * @type {string}
+ */
+const FREEZE_ANIMATIONS_CSS = `
+  *, *::before, *::after {
+    animation-delay: 0s !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-fill-mode: forwards !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+`;
+
 export async function decomposePage(page, designWidth, designHeight) {
+  // Settle CSS animations to a stable resting frame BEFORE measuring geometry
+  // or taking screenshots, so nothing is captured mid-animation.
+  await page.addStyleTag({ content: FREEZE_ANIMATIONS_CSS });
+  // Let the now-instant animations complete and layout settle.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 60)));
+
   // `evaluate` of a function expression string lets us pass args into the page.
   return page.evaluate(
     ([src, w, h]) => {
