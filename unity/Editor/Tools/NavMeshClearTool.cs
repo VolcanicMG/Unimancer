@@ -1,12 +1,18 @@
 using System;
 using Newtonsoft.Json.Linq;
-using UnityEditor.AI;
+using UnityEngine;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 
 namespace Unimancer
 {
     /// <summary>
-    /// Clears all baked navmesh data from the scene using the built-in (legacy)
-    /// NavMeshBuilder API. Runs synchronously on the Unity main thread.
+    /// Clears baked navmesh data by calling <c>RemoveData()</c> on every
+    /// <c>NavMeshSurface</c> (AI Navigation package) in the active scene(s).
+    /// Modern, non-deprecated replacement for the obsolete
+    /// <c>UnityEditor.AI.NavMeshBuilder.ClearAllNavMeshes()</c>. The package is
+    /// reached via reflection (see <see cref="NavMeshSurfaceSupport"/>); runs
+    /// synchronously on the Unity main thread.
     /// </summary>
     public class NavMeshClearTool : McpToolBase
     {
@@ -15,26 +21,44 @@ namespace Unimancer
 
         /// <inheritdoc />
         public override string Description =>
-            "Clear all baked navmesh data from the scene using the built-in NavMeshBuilder API.";
+            "Clear baked navmesh data by calling RemoveData() on every NavMeshSurface (AI Navigation package) in the active scene. Returns { cleared: <surfaceCount> }.";
 
         /// <inheritdoc />
         public override bool IsAsync => false;
 
         /// <summary>
-        /// Clear all navmeshes from the current scene.
+        /// Remove navmesh data from each NavMeshSurface in the scene and mark it dirty.
         /// </summary>
         /// <param name="parameters">No parameters.</param>
-        /// <returns>{ cleared: true }, or { error } on failure.</returns>
+        /// <returns>{ cleared: count } on success, or { error } otherwise.</returns>
         public override JObject Execute(JObject parameters)
         {
             try
             {
-                // See NavMeshBakeTool: UnityEditor.AI.NavMeshBuilder is [Obsolete] in Unity 6
-                // with no non-deprecated drop-in for the legacy workflow; suppress CS0618.
-#pragma warning disable 0618
-                NavMeshBuilder.ClearAllNavMeshes();
-#pragma warning restore 0618
-                return new JObject { ["cleared"] = true };
+                var surfaceType = NavMeshSurfaceSupport.ResolveSurfaceType();
+                if (surfaceType == null)
+                    return new JObject { ["error"] = NavMeshSurfaceSupport.MissingPackageMessage };
+
+                var surfaces = NavMeshSurfaceSupport.FindSurfaces(surfaceType);
+                if (surfaces.Length == 0)
+                    return new JObject { ["error"] = "No NavMeshSurface components found in the active scene." };
+
+                var remove = surfaceType.GetMethod("RemoveData", Type.EmptyTypes);
+                if (remove == null)
+                    return new JObject { ["error"] = "NavMeshSurface.RemoveData() not found — unexpected AI Navigation package version." };
+
+                int cleared = 0;
+                foreach (var surface in surfaces)
+                {
+                    remove.Invoke(surface, null);
+                    if (surface is Component comp)
+                    {
+                        EditorUtility.SetDirty(comp);
+                        EditorSceneManager.MarkSceneDirty(comp.gameObject.scene);
+                    }
+                    cleared++;
+                }
+                return new JObject { ["cleared"] = cleared };
             }
             catch (Exception e)
             {

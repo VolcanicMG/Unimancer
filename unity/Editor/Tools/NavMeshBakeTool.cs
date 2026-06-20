@@ -1,17 +1,20 @@
 using System;
 using Newtonsoft.Json.Linq;
-using UnityEditor.AI;
+using UnityEngine;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 
 namespace Unimancer
 {
     /// <summary>
-    /// Bakes the scene navmesh using the built-in (legacy) NavMeshBuilder API.
-    /// Runs synchronously on the Unity main thread.
+    /// Bakes the scene navmesh by building every <c>NavMeshSurface</c> (AI
+    /// Navigation package) in the active scene(s). This is the modern, non-
+    /// deprecated workflow that replaces the obsolete
+    /// <c>UnityEditor.AI.NavMeshBuilder.BuildNavMesh()</c> global bake.
     ///
-    /// Note: projects using the AI Navigation package (NavMeshSurface components)
-    /// bake per-surface and do NOT use NavMeshBuilder; this tool covers the
-    /// built-in/legacy navigation workflow. UnityEditor.AI.NavMeshBuilder is the
-    /// long-standing Editor API for that workflow and ships with the Editor.
+    /// The package is reached via reflection (see <see cref="NavMeshSurfaceSupport"/>)
+    /// so Unimancer stays portable to projects without it. Runs synchronously on
+    /// the Unity main thread.
     /// </summary>
     public class NavMeshBakeTool : McpToolBase
     {
@@ -20,29 +23,44 @@ namespace Unimancer
 
         /// <inheritdoc />
         public override string Description =>
-            "Bake the scene navmesh using the built-in (legacy) NavMeshBuilder API.";
+            "Bake the scene navmesh by building every NavMeshSurface (AI Navigation package) in the active scene. Returns { baked: <surfaceCount> }.";
 
         /// <inheritdoc />
         public override bool IsAsync => false;
 
         /// <summary>
-        /// Build the navmesh for the current scene.
+        /// Build the navmesh for each NavMeshSurface in the scene and mark it dirty.
         /// </summary>
         /// <param name="parameters">No parameters.</param>
-        /// <returns>{ baked: true }, or { error } on failure.</returns>
+        /// <returns>{ baked: count } on success, or { error } otherwise.</returns>
         public override JObject Execute(JObject parameters)
         {
             try
             {
-                // UnityEditor.AI.NavMeshBuilder is [Obsolete] in Unity 6 (the engine steers
-                // projects to the AI Navigation package / NavMeshSurface), but the legacy
-                // global bake still works and has no non-deprecated drop-in for the built-in
-                // navigation workflow. We intentionally use it and suppress the CS0618 warning
-                // so it stops spamming the Editor console.
-#pragma warning disable 0618
-                NavMeshBuilder.BuildNavMesh();
-#pragma warning restore 0618
-                return new JObject { ["baked"] = true };
+                var surfaceType = NavMeshSurfaceSupport.ResolveSurfaceType();
+                if (surfaceType == null)
+                    return new JObject { ["error"] = NavMeshSurfaceSupport.MissingPackageMessage };
+
+                var surfaces = NavMeshSurfaceSupport.FindSurfaces(surfaceType);
+                if (surfaces.Length == 0)
+                    return new JObject { ["error"] = "No NavMeshSurface components found in the active scene. Add one (GameObject > AI > NavMesh Surface) or open the scene that has them." };
+
+                var build = surfaceType.GetMethod("BuildNavMesh", Type.EmptyTypes);
+                if (build == null)
+                    return new JObject { ["error"] = "NavMeshSurface.BuildNavMesh() not found — unexpected AI Navigation package version." };
+
+                int baked = 0;
+                foreach (var surface in surfaces)
+                {
+                    build.Invoke(surface, null);
+                    if (surface is Component comp)
+                    {
+                        EditorUtility.SetDirty(comp);
+                        EditorSceneManager.MarkSceneDirty(comp.gameObject.scene);
+                    }
+                    baked++;
+                }
+                return new JObject { ["baked"] = baked };
             }
             catch (Exception e)
             {
