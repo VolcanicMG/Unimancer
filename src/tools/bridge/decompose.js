@@ -191,10 +191,11 @@ export const BROWSER_DECOMPOSE_SRC = /* js */ `
       px(cs.borderTopWidth), px(cs.borderRightWidth),
       px(cs.borderBottomWidth), px(cs.borderLeftWidth)
     );
-    var shadow = parseShadowExtent(cs.boxShadow);
-    // Uniform base from radius/border/outer-shadow (CSS px), then layer on the
-    // per-side clip-path chamfer so beveled/notched HUD frames slice correctly.
-    var base = radius + bw + Math.max(0, shadow);
+    // Uniform base from radius/border (CSS px), then layer on the per-side clip-path
+    // chamfer so beveled/notched HUD frames slice correctly. The outer box-shadow/glow
+    // is intentionally EXCLUDED — it isn't part of the sliceable frame, and including
+    // it inflated the slice (a small beveled badge sliced on all 4 sides, not its 2 ends).
+    var base = radius + bw;
     var L = base, T = base, R = base, B = base;
     var clip = clipInsets(el, cs);
     if (clip) {

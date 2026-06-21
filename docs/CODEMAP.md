@@ -34,8 +34,9 @@ unimancer/
 │                                                (text/icon/nested sprite), flattens only unstyled groups; own-text peel
 │                               playwright.js  — lazy withPage() launcher (Chromium, deviceScaleFactor/viewport)
 │                               layers.js      — shared captureLayerPng(): isolate a layer (hide content children + siblings,
-│                                                clear ancestor/own box-shadow rings) and screenshot it transparent, padded to
-│                                                include its drop-shadow GLOW → shape-accurate, glow-inclusive sprite crops
+│                                                clear ancestor backdrops, keep inset borders, drop outset rings) → transparent
+│                                                shape-accurate crop; pad ICONS by their drop-shadow glow (frames stay unpadded so
+│                                                their 9-slice stays aligned); drop near-empty captures via a zlib PNG-alpha check
 │                               htmlInventory.js — html_inventory: dry-run decompose, no files (Node-only)
 │                               htmlPreview.js — html_preview: full crop + ONE crop per separated layer (frame, sub-sprites,
 │                                                icons) rasterized in isolation via layers.js, 9-slice drawn on sprites that

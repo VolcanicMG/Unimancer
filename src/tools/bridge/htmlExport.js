@@ -99,6 +99,7 @@ export const htmlExport = {
 
             // Build the manifest node tree while exporting each layer's asset.
             const rootNode = await exportLayer(page, comp.node, comp.name, compDir, relPrefix, exportScale, written);
+            if (!rootNode) continue; // whole component captured empty — skip it
 
             const manifest = {
               meta: {
@@ -240,7 +241,12 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
     // drop-shadow glow (see captureLayerPng). Transparent everywhere it doesn't paint.
     const buf = await captureLayerPng(page, node);
     if (!buf) {
-      out.warning = "selector not found; asset not written";
+      // Missing element OR a near-empty capture (e.g. an animated sheen overlay):
+      // don't emit a blank asset. Demote to a structural group if it has real
+      // content children (so they survive); otherwise drop the layer entirely.
+      if (!node.children?.length) return null;
+      delete out.asset; delete out.kind; delete out.format; delete out.nineSlice;
+      out.type = "group";
     } else {
       await writeFile(absAsset, buf);
       written.push(absAsset);
@@ -248,10 +254,12 @@ async function exportLayer(page, node, component, compDir, relPrefix, exportScal
   }
 
   // Recurse into children (e.g. a frame's nested icon/text peeled out separately).
+  // Drop null children (their elements were missing/empty).
   if (node.children?.length) {
     out.children = [];
     for (const child of node.children) {
-      out.children.push(await exportLayer(page, child, component, compDir, relPrefix, exportScale, written));
+      const c = await exportLayer(page, child, component, compDir, relPrefix, exportScale, written);
+      if (c) out.children.push(c);
     }
   }
   return out;
