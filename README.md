@@ -1,27 +1,104 @@
 # Unimancer 🔮
 
-**Command the Unity engine with AI.** Unimancer is a Model Context Protocol (MCP)
-server that bridges AI assistants (Claude, Cursor, etc.) to the Unity Editor —
-with **107 tools** spanning the core editor surface *plus* first-class
-**Android build & device tooling** that other Unity MCP servers don't have.
+**Unity now ships its own MCP server.** Unity's official CLI (`unity`) plus the
+`com.unity.pipeline` package expose **~150 built-in tools** covering scenes,
+GameObjects, components, assets, prefabs, scripts, animation, tests, build,
+capture, and arbitrary C# (`eval`) — over `unity mcp`, stdio, driven straight
+from the Editor. Unimancer no longer tries to be that bridge.
+
+Unimancer is now a **thin companion**: a **21-tool** Node MCP server covering
+what Unity's CLI doesn't — **Android device/emulator control**, the
+**HTML→Unity art pipeline**, and **UGUI/sprite/component/animation/Android
+authoring** contributed as pipeline commands. Point an AI client at both
+servers together.
 
 ```
-[ AI client ] --MCP/stdio--> [ Unimancer server (Node/JS) ] --TCP(JSON)--> [ Unity Editor package (C#) ]
-   Claude / Cursor                 src/                          tcp://127.0.0.1:8090   unity/
-                                      |
-                                      +--shell--> adb / emulator   (Android tools, no Unity needed)
+[ AI client ] --MCP/stdio--> unity mcp  ──> com.unity.pipeline (in Editor)
+                             ~150 built-in tools: scenes, GameObjects, components,
+                             assets, prefabs, scripts, tests, build, capture, eval…
+                             + unimancer's 10 [CliCommand]s (ui_*, sprite_*, gameobjects, animation, android)
+
+[ AI client ] --MCP/stdio--> unimancer (Node, 21 tools)
+                             |-- adb / emulator   (Android devices, no Unity needed)
+                             |-- Playwright       (HTML -> Unity art bridge)
+                             `-- `unity command`  (only for the ui_build_from_manifest step)
 ```
 
-- **`src/`** — the Node/JavaScript MCP server (stdio). Owns tool definitions, the
-  Unity WebSocket client, and the `adb`/`emulator` shell helpers.
-- **`unity/`** — the Unity UPM package (C#). Hosts a TCP server inside the
-  Editor (auto-starts on load) and executes engine-side tools via reflection.
+- **`src/`** — the Node/JS MCP server (stdio): `adb` (12), `emulator` (5), `bridge` (4).
+  No TCP client, no reflection — the only thing it shells out to Unity for is
+  `unity command ui_build_from_manifest` at the end of `html_to_unity`.
+- **`unity/`** — the Unity UPM package (C#). No longer a bridge: it's the
+  in-Editor **Claude chat window** plus **ten `[CliCommand]` static methods**
+  (`ui_*`, `sprite_*`, `component_list`, `animator_set_parameter`,
+  `android_player_settings`, `ui_click`) that `com.unity.pipeline` discovers
+  and `unity mcp` surfaces automatically alongside its ~150 built-ins.
 
-Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
+Targets **Unity 6000.5 (6.5)+** with `com.unity.pipeline` **0.6.0-exp.1** /
+Unity CLI **1.0.0-beta.8**, and **Android Gradle Plugin 9.0** defaults (now
+Unity's own build tools' concern, not Unimancer's).
+
+## What moved where
+
+Every removed unimancer tool group is now a **built-in `unity mcp` command**
+(real names below — see [USAGE.md §3](docs/USAGE.md#3-tool-groups) for the full
+21 that remain).
+
+| Removed unimancer group | Now covered by (`unity mcp` built-ins) |
+|---|---|
+| `gameObject` | `create_gameobject(s)`, `find_gameobjects`, `add_component`, `remove_component`, `get_component_properties`, `set_component_properties`, `set_transform`, `set_parent`, `set_active`, `set_layer`, `set_tag`, `rename_gameobject`, `delete_gameobject` — **except** listing a GameObject's components, which is kept as unimancer's own `component_list` `[CliCommand]` (lighter than `get_component_properties`: types/enabled/instanceID, no serialized-property dump) |
+| `sceneAssets` | scenes: `create_scene`, `open_scene`, `save_scene`, `save_all`, `list_open_scenes`, `set_active_scene`, `get_scene_hierarchy`, `add_scene_to_build`, `remove_scene_from_build`; assets: `create_asset`, `create_folder`, `copy_asset`, `move_asset`, `rename_asset`, `delete_asset`, `find_assets`, `import_asset`, `get/set_import_settings`; prefabs: `create_prefab`, `create_prefab_variant`, `instantiate_prefab`, `apply_prefab_overrides`, `revert_prefab_overrides`, `unpack_prefab`, `save_prefab_contents` |
+| `scripts` / `scriptEdit` | `create_script`, `attach_script`, `read_text_file`, `write_text_file`, `recompile`, `recompile_status`, `get_serialized_fields`, `set_serialized_field`, `eval`, `eval_file`, `run_script`, `reload_file*` (hot reload), plus materials: `get/set_material_properties`, `get_shader_properties`, `list_shaders` |
+| `editor` | `editor_status`, `editor_play`, `editor_stop`, `editor_pause`, `editor_focus`, `menu`, `run_tests`, `list_tests`, `test_status`, `cancel_tests`, `package_add/remove/list/search/resolve/status`, `get_console_logs`, `clear_console`, `console`, `get/set_selection`, `search` |
+| `capture` | `capture_game_view`, `capture_scene_view`, `screenshot` |
+| `animation` | `add_animator_layer/parameter/state/transition`, `create/get_animator_controller`, `create/get_animation_clip`, `set/remove_animation_curve`, `create/get_timeline`, `add_timeline_track/clip` — **except** driving an Animator parameter at runtime, kept as unimancer's own `animator_set_parameter` `[CliCommand]` |
+| `navmesh` (+ lighting) | `bake_navmesh`, `navmesh_bake_status`, `cancel_navmesh_bake`, `clear_navmesh`, `bake_navmesh_surfaces`, `get/set_navmesh_settings`, `bake_lighting`, `lighting_bake_status`, `cancel_lighting_bake`, `clear_baked_lighting`, `get/set_lighting_settings`, `bake_occlusion_culling`, `occlusion_bake_status`, `cancel_occlusion_bake`, `clear_occlusion_culling` |
+| `profiler` | `get_performance_stats`, `audit`, `audit_status`, `report_evals` |
+| `androidBuild` | `build`, `build_status`, `get/set_build_settings`, `list_build_targets`, `switch_build_target(_status)`, `list_build_profiles`, `get/set_player_settings`, plus quality/graphics/physics/audio/input/tags_layers/time settings — **except** Android-specific player settings (application id, SDK levels, architectures, scripting backend, keystore name/alias), kept as unimancer's own `android_player_settings` `[CliCommand]` (get-or-set; never accepts or returns keystore/alias **passwords** — those stay on `unity build --android-keystore-*`) |
+| `runtime` | the Player-side commands: `eval`, `simulate_pointer`, `simulate_key`, `set_timescale`, `console` (same tags work against a live Player, not just the Editor) |
+| `batch` | `batch` — same idea (transactional multi-op with `$N.path` refs), now a built-in |
+
+`ui` and `sprites` are **not** replaced — they didn't exist upstream, so
+unimancer contributes them back as pipeline commands (see below), including
+`ui_click` (simulated pointer click through `ExecuteEvents`/`Selectable`,
+kept as a unimancer `[CliCommand]` since Unity's built-ins don't drive UGUI
+input events).
 
 ## Quick start
 
-1. **Install server deps** (through the supply-chain guard):
+1. **Install the Unity CLI** (skip if `unity --version` already works):
+   ```bash
+   # macOS / Linux
+   curl -fsSL https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.sh | UNITY_CLI_CHANNEL=beta bash
+   ```
+   ```powershell
+   # Windows (PowerShell)
+   $env:UNITY_CLI_CHANNEL='beta'; irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex
+   ```
+   Open a new shell so `unity` is on PATH, then `unity --version`.
+2. **Install the pipeline package into your project**:
+   ```bash
+   unity pipeline install --project-path /path/to/YourProject
+   ```
+3. **Add the Unimancer UPM package** (contributes the `ui_*`/`sprite_*` commands
+   and the in-Editor chat window) — Package Manager → **Add package from git URL**
+   → `https://github.com/VolcanicMG/Unimancer.git?path=/unity`, or **Add package
+   from disk** → `<clone>/unity/package.json` on the same OS as Unity.
+4. **Configure your MCP client**:
+   ```bash
+   unity mcp configure claude-code --project-path /path/to/YourProject
+   ```
+   This registers the `unity` server. Add the `unimancer` Node server manually
+   (`claude mcp add unimancer -- node /abs/path/to/unimancer/src/index.js`) so
+   the client has both:
+   ```json
+   {
+     "mcpServers": {
+       "unity": { "command": "unity", "args": ["mcp", "--project-path", "/path/to/YourProject"] },
+       "unimancer": { "command": "node", "args": ["/abs/path/to/unimancer/src/index.js"] }
+     }
+   }
+   ```
+5. **Install server deps** (through the supply-chain guard):
    ```bash
    guard install      # or: npm install
    ```
@@ -41,49 +118,32 @@ Targets **Unity 6000.5 (6.5)** / **Android Gradle Plugin 9.0** defaults.
    SVG icons exported by the bridge import into Unity as Sprites only with the
    **`com.unity.vectorgraphics`** package installed (otherwise SVG layers degrade
    with a clear message; PNG layers always work).
-2. **Connect your MCP client** — print ready-to-paste config + Unity steps:
-   ```bash
-   node scripts/setup.mjs           # prints config for Claude Code / Desktop / Cursor
-   node scripts/setup.mjs --write   # also drops a .mcp.json in the current folder
-   ```
-   Or one-liner for Claude Code:
-   ```bash
-   claude mcp add unimancer -- node /abs/path/to/unimancer/src/index.js
-   ```
-3. **Add the Unity package**:
-   - **Recommended / first run** — Package Manager → **Add package from git URL** →
-     `https://github.com/VolcanicMG/Unimancer.git?path=/unity` (read-only).
-   - **Editable (to fix C#)** — clone the repo on the *same OS as Unity*, then
-     **Add package from disk** → `<clone>/unity/package.json`.
-   - **WSL note:** do not add from disk over a `\\wsl.localhost\...` UNC path — Unity
-     rejects it; use the git URL or a Windows clone.
-   - **WSL dev loop (edit here, Unity compiles there):** if this repo lives on the
-     WSL filesystem but the package is embedded in a Windows-side Unity project,
-     run `./scripts/dev-sync.sh [embedded-package-dir]` in a spare terminal. It
-     content-mirrors `unity/` into the embedded copy on a 2 s poll (checksum-based,
-     `*.meta` preserved), so your edits reach the Editor without manual copying.
 
-   The bridge **auto-starts** on Editor load. Check **Window → Unimancer → Setup** for live status.
-   If it ever shows *not listening* (e.g. the port was held by a stale socket),
-   use **Window → Unimancer → Restart Bridge** (or the **Restart** button in the
-   Setup window / Chat header). The bridge marks its socket **non-inheritable** (so
-   Unity child processes — e.g. the AI Assistant `relay_win.exe` — can't keep port
-   8090 open after the Editor dies), disposes the socket on every reload, and retries
-   the bind, so a recompile/restart won't normally wedge it. If an *older* session's
-   child still squats the port, find it with `netstat -ano | findstr :8090`, end that
-   PID, then click Restart Bridge.
+> **WSL note:** when Unity runs on Windows and your agent runs in WSL, run the
+> Windows `unity.exe` through a small shim on the WSL PATH (a one-line script
+> that `exec`s the Windows binary) — the Unity CLI has no native Linux build,
+> so `unity mcp` is really driving the Windows Editor process. The Node
+> `unimancer` server runs natively in WSL; only the `unity` calls it shells out
+> to (`ui_build_from_manifest`) cross into Windows via the shim.
+>
+> Developing the C# package from WSL: Unity compiles an *embedded copy* under
+> the project's `Packages/`. `./scripts/dev-sync.sh --once --delete` mirrors
+> `unity/` into that copy and asks the Editor to recompile through the CLI
+> (`--delete` removes files you deleted here; omit `--once` to keep polling).
+> Or skip the copy: keep the repo on the Windows filesystem and reference it as
+> `"file:C:/path/to/unimancer/unity"` in `Packages/manifest.json`.
 
 ## In-Editor chat — no API key 🆕
 
 A chat panel **inside Unity** (**Window → Unimancer → Chat**) that drives your local
 `claude` CLI in headless streaming mode. It runs on your **Claude subscription, not a
-pay-per-token API key**, and inherits the full Unimancer MCP tool surface — the agent
-loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
+pay-per-token API key**, and registers an mcp-config with **both** MCP servers —
+`unity` (`unity mcp --project-path <project>`) and `unimancer` (this Node server) —
+with `allowedTools` set to `mcp__unity,mcp__unimancer`.
 
 - Needs the `claude` CLI installed & logged in on the machine. **WSL is fine** — the
   window WSL-wraps the spawn (toggle in **Setup**). Keep `ANTHROPIC_API_KEY` unset so
   Claude Code uses your subscription.
-- Reuses the Node server path you set in **Window → Unimancer → Setup**.
 - **Multi-turn & resumable** — continues via `--resume`, reopens the last chat and
   resumes after a recompile. Optional **"Keep chat alive in Play mode"** (Settings)
   skips the domain reload so entering Play doesn't interrupt a turn.
@@ -97,36 +157,33 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
   **Ctrl/Cmd+V**; the agent views them with the Read tool.
 - **Choices as buttons** — when the agent offers options it renders clickable buttons
   (you can still type a free reply).
-- **Self-healing bridge** — the Editor bridge re-binds itself after reloads, with a
-  **Restart Bridge** menu item / button if ever needed.
 
 ## Docs
 
-- [USAGE.md](docs/USAGE.md) — setup, tool groups, resources, notifications, runtime, troubleshooting
-- [PITCH.md](docs/PITCH.md) — why Unimancer over other Unity MCPs
+- [USAGE.md](docs/USAGE.md) — setup, tool groups, resources, notifications, troubleshooting
+- [PITCH.md](docs/PITCH.md) — why Unimancer alongside Unity's own MCP
 - [docs/CODEMAP.md](docs/CODEMAP.md) — architecture & how to add a tool
 
-## Tools (107)
+## Tools (21)
 
 | Group | Count | Needs Unity? | Examples |
 |---|---|---|---|
 | ADB device control | 12 | no (`adb`) | install, launch, logcat, screenshot, push/pull |
-| Android build & config | 6 | yes | build APK/AAB, player settings, keystore, manifest, gradle |
 | Emulator & SDK | 5 | no | list/start/stop AVDs, sdk_check |
-| GameObjects & Components | 10 | yes | create, find, transform, add/remove/set component |
-| Scenes, Assets & Prefabs | 12 | yes | open/save/new scene, hierarchy, asset CRUD, prefab create/instantiate |
-| Scripts & Materials | 8 | yes | create/read/edit/delete script, find-in-files, material/shader |
-| Editor, Console, Packages, Tests | 12 | yes | play/pause, console read/clear, menu, UPM add/remove, run tests, selection |
-| Visual capture | 4 | yes | game view, scene view, camera, multi-angle (returned as images) |
-| uGUI authoring | 4 | yes | create UI archetypes, set RectTransform layout/presets, dump canvas tree, build a component from a bridge manifest |
-| Sprites | 2 | yes | import an image as a 9-slice sprite, procedurally generate sprite PNGs |
-| HTML→Unity bridge | 4 | export/preview: no (Playwright); build: yes | inventory (dry-run), **per-layer preview** (`html_preview` — full crop + every separated layer per component: frame, sub-sprites (progress fills, plates), icons — each isolated as a shape-accurate transparent sprite (no black corners) with its own 9-slice or none; shown in a dedicated popout (full crop is reference-only — Unity builds from the layers); temp crops auto-clean), export a Claude Design HTML mockup into per-component layer assets + a manifest, and `html_to_unity` (one-shot export **and** build in Unity) |
+| HTML→Unity bridge | 4 | export/preview: no (Playwright); build: yes (`unity command`) | inventory (dry-run), **per-layer preview** (`html_preview` — full crop + every separated layer per component: frame, sub-sprites (progress fills, plates), icons — each isolated as a shape-accurate transparent sprite (no black corners) with its own 9-slice or none; shown in a dedicated popout; temp crops auto-clean), export a Claude Design HTML mockup into per-component layer assets + a manifest, and `html_to_unity` (one-shot export **and** build via `unity command ui_build_from_manifest`) |
+
+Unity's own `unity mcp` adds **~150 built-in tools** plus unimancer's 10
+contributed `[CliCommand]`s (`ui_create`, `rect_transform_set`, `ui_dump`,
+`ui_build_from_manifest`, `ui_click`, `sprite_import`, `sprite_generate`,
+`component_list`, `animator_set_parameter`, `android_player_settings`) — see
+[what moved where](#what-moved-where) above.
 
 ## Environment variables
 
 | Var | Default | Purpose |
 |---|---|---|
-| `UNITY_MCP_URL` | `tcp://127.0.0.1:8090` | Editor bridge URL |
+| `UNITY_CLI` | `unity` | path/name of the Unity CLI binary the Node server shells out to |
+| `UNITY_PROJECT_PATH` | — | project passed to `unity command` when a tool doesn't specify one |
 | `ADB_PATH` | `adb` | path to the adb binary |
 | `EMULATOR_PATH` | `emulator` | path to the Android emulator binary |
 
@@ -135,13 +192,12 @@ loop, tool dispatch, and MCP-client behaviour all live in Claude Code itself.
 Guarded by [depguard](https://github.com/) (`guard`). Use `guard install` instead
 of `npm install`; commits/pushes run `guard check` automatically.
 
-> **Dependency note:** the official `@modelcontextprotocol/sdk` is pinned to
-> **1.24.1** — the last release free of the `hono` subtree (which currently has
-> HIGH advisories across *all* versions). The SDK's own two HIGH advisories
-> (`GHSA-345p` HTTP-transport reuse, `GHSA-8r9q` UriTemplate ReDoS) are waived in
-> `.guard-ignores` because Unimancer is **stdio-only and registers only tools** —
-> neither code path is reachable. Revisit if HTTP transport or resource templates
-> are ever added.
+> **Dependency note:** `@modelcontextprotocol/sdk` is at **1.30.0** (its earlier
+> HIGH advisories, `GHSA-345p` and `GHSA-8r9q`, are fixed there and the `hono`
+> subtree it pulls is currently advisory-free). `fast-uri` is pinned to 3.1.6 via
+> `overrides` until `ajv` bumps it. Two moderate `qs` advisories remain until
+> 6.16.0 clears the 14-day cooldown; they sit in the SDK's HTTP transport, which
+> Unimancer (stdio-only) never uses.
 
 > **Playwright note:** the HTML→Unity bridge pins **`playwright@1.61.0`** (exact).
 > It was published recently, so depguard's 14-day cooldown may hide it — if
@@ -152,7 +208,11 @@ of `npm install`; commits/pushes run `guard check` automatically.
 
 ## Adding a tool
 
-See [`docs/CODEMAP.md`](docs/CODEMAP.md). In short: each tool is one JS file
-exporting `{ name, description, inputSchema, handler }` (added to its group
-`index.js`); engine-side tools also get a C# `McpToolBase` subclass whose `Name`
-equals the JS `name` (auto-discovered by reflection — no registration needed).
+Two paths now — see [`docs/CODEMAP.md`](docs/CODEMAP.md) for details:
+
+- **A pipeline command** (engine-side, e.g. more UGUI/sprite authoring): a
+  `[CliCommand]` static method in `unity/Editor/Commands/` — `unity mcp`
+  discovers and surfaces it automatically, no Node changes.
+- **A Node tool** (genuinely Node-side work — shelling out, Playwright, adb):
+  one JS file exporting `{ name, description, inputSchema, handler }` in
+  `src/tools/<group>/`, added to that group's `index.js`.

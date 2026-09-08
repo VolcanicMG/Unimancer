@@ -2,10 +2,11 @@
   "name": "com.unimancer.mcp",
   "version": "0.1.0",
   "displayName": "Unimancer MCP",
-  "description": "Command the Unity engine with AI via the Model Context Protocol.",
+  "description": "Unity CLI / com.unity.pipeline companion: UGUI + sprite authoring commands, plus the in-Editor Claude chat window.",
   "unity": "6000.5",
   "author": { "name": "VolcanicMG" },
   "dependencies": {
+    "com.unity.pipeline": "0.6.0-exp.1",
     "com.unity.nuget.newtonsoft-json": "3.2.1"
   }
 }

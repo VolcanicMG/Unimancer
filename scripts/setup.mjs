@@ -2,9 +2,10 @@
 /**
  * Unimancer setup helper.
  *
- * Prints (and optionally writes) everything needed to connect an MCP client to
- * the Unimancer server and to install the Unity-side package. Zero dependencies
- * — runs on a bare Node install before `npm install`.
+ * Prints (and optionally writes) the TWO MCP servers a Unity project wants —
+ * Unity's own `unity mcp` (the pipeline commands, incl. unimancer's ui_ and sprite_ ones)
+ * and this Node server (adb / emulator / HTML->Unity bridge) — plus the Unity-side
+ * install steps. Zero dependencies — runs on a bare Node install before `npm install`.
  *
  * Usage:
  *   node scripts/setup.mjs              # print config snippets + Unity steps
@@ -25,11 +26,28 @@ const UNITY_PKG = join(REPO, "unity");
 const GIT_REMOTE = "https://github.com/VolcanicMG/Unimancer.git";
 
 /**
- * The MCP server definition every client embeds (stdio transport).
+ * The Unimancer MCP server definition every client embeds (stdio transport).
  * @returns {{command: string, args: string[], env: Record<string,string>}}
  */
 function serverDef() {
   return { command: "node", args: [ENTRY], env: {} };
+}
+
+/**
+ * Unity's own stdio MCP server, exposing every com.unity.pipeline command
+ * (including the ui_ and sprite_ commands this repo's UPM package contributes).
+ * @param {string} [projectPath] - Unity project root; omit to let the CLI auto-detect.
+ * @returns {{command: string, args: string[]}}
+ */
+function unityServerDef(projectPath) {
+  const args = ["mcp"];
+  if (projectPath) args.push("--project-path", projectPath);
+  return { command: "unity", args };
+}
+
+/** Both servers, as an MCP client's `mcpServers` map. @param {string} [projectPath] */
+function bothServers(projectPath) {
+  return { unity: unityServerDef(projectPath), unimancer: serverDef() };
 }
 
 /** Pretty-print a labelled JSON block. @param {string} label @param {unknown} obj */
@@ -51,7 +69,7 @@ function writeProjectConfig() {
     try { cfg = JSON.parse(readFileSync(target, "utf8")); cfg.mcpServers ??= {}; }
     catch { /* overwrite a corrupt file */ }
   }
-  cfg.mcpServers.unimancer = serverDef();
+  Object.assign(cfg.mcpServers, bothServers(process.env.UNITY_PROJECT_PATH));
   writeFileSync(target, JSON.stringify(cfg, null, 2) + "\n");
   return target;
 }
@@ -59,8 +77,10 @@ function writeProjectConfig() {
 function main() {
   const args = process.argv.slice(2);
 
+  const projectPath = process.env.UNITY_PROJECT_PATH;
+
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ unimancer: serverDef() }, null, 2));
+    console.log(JSON.stringify(bothServers(projectPath), null, 2));
     return;
   }
 
@@ -71,27 +91,40 @@ function main() {
     console.log("\n⚠  Dependencies not installed. Run `guard install` (or `npm install`) in the repo first.");
   }
 
-  // --- MCP client configs ---
-  block("Claude Code / Cursor  →  .mcp.json (project root)", { mcpServers: { unimancer: serverDef() } });
-  block("Claude Desktop  →  claude_desktop_config.json", { mcpServers: { unimancer: serverDef() } });
-  console.log("\nClaude Code one-liner:  claude mcp add unimancer -- node " + ENTRY);
+  // --- step 1: Unity's own CLI + pipeline package (this is what drives the Editor) ---
+  console.log("\n── 1. Unity CLI + pipeline package ──");
+  console.log("  Install the `unity` CLI (beta channel), then in your Unity 6.0+ project:");
+  console.log("     unity pipeline install --project-path <project>");
+  console.log("     unity command editor_status --project-path <project>   # confirm the Editor answers");
+  console.log("  That gives an AI client ~149 built-in tools via `unity mcp` (scenes, GameObjects,");
+  console.log("  assets, prefabs, scripts, tests, build, capture, eval, …).");
 
-  // --- Unity side ---
-  console.log("\n── Unity package (the C# bridge) ──");
-  console.log("  The bridge auto-starts on Editor load (InitializeOnLoad) and listens on tcp://127.0.0.1:8090.");
-  console.log("  Recommended: Package Manager → + → Add package from git URL →");
+  // --- step 2: this repo's UPM package (ui_*/sprite_* commands + the chat window) ---
+  console.log("\n── 2. Unimancer UPM package (adds ui_*/sprite_* pipeline commands) ──");
+  console.log("  Package Manager → + → Add package from git URL →");
   console.log(`     ${GIT_REMOTE}?path=/unity   (read-only; best for a first run)`);
   console.log("  Editable (for fixing C#): clone the repo on the SAME OS as Unity, then");
-  console.log(`     Add package from disk → <clone>/unity/package.json`);
+  console.log("     Add package from disk → <clone>/unity/package.json");
   console.log(`  Local path here: ${join(UNITY_PKG, "package.json")}`);
-  console.log("  NOTE (WSL): do NOT add from disk over a \\\\wsl.localhost\\... path — Unity rejects it; use the git URL or a Windows clone.");
-  console.log("  Requires Unity 6000.5+ and com.unity.nuget.newtonsoft-json (auto-resolved).");
+  console.log("  NOTE (WSL): do NOT add from disk over a \\\\wsl.localhost\\... path — Unity rejects it;");
+  console.log("  use the git URL or a Windows clone. Requires Unity 6.0+ and com.unity.pipeline.");
+  console.log("  Its 6 commands (ui_create, rect_transform_set, ui_dump, ui_build_from_manifest,");
+  console.log("  sprite_import, sprite_generate) surface through `unity mcp` automatically.");
+
+  // --- step 3: register both MCP servers ---
+  console.log("\n── 3. Register both MCP servers ──");
+  console.log("  Unity's server:     unity mcp configure claude-code");
+  console.log(`  Unimancer's server: claude mcp add unimancer -- node ${ENTRY}`);
+  console.log("  …or write the JSON by hand:");
+  block("Claude Code / Cursor  →  .mcp.json (project root)", { mcpServers: bothServers(projectPath) });
+  block("Claude Desktop  →  claude_desktop_config.json", { mcpServers: bothServers(projectPath) });
 
   // --- Env knobs ---
   console.log("\n── Optional env vars ──");
-  console.log("  UNITY_MCP_URL   bridge URL (default tcp://127.0.0.1:8090)");
-  console.log("  ADB_PATH        path to adb (default: adb on PATH)");
-  console.log("  EMULATOR_PATH   path to the Android emulator binary");
+  console.log("  UNITY_CLI            path to the `unity` binary (default: unity on PATH)");
+  console.log("  UNITY_PROJECT_PATH   Unity project root passed to `unity command` / `unity mcp`");
+  console.log("  ADB_PATH             path to adb (default: adb on PATH)");
+  console.log("  EMULATOR_PATH        path to the Android emulator binary");
 
   if (args.includes("--write")) {
     const p = writeProjectConfig();

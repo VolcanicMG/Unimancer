@@ -8,26 +8,22 @@ For contributors: where things live, what calls what, and how to add a tool.
 unimancer/
 ├── package.json              Node server manifest (deps pinned exact)
 ├── scripts/setup.mjs         zero-dep CLI: prints MCP client config + Unity steps
-├── src/                      ── the Node/JS MCP server (stdio) ──
+├── src/                      ── the Node/JS MCP server (stdio, 21 tools) ──
 │   ├── index.js              entry: builds McpServer, ctx, registers allTools, serves
 │   ├── core/
 │   │   ├── types.js          ToolDefinition typedef + ok()/err() result helpers
-│   │   ├── image.js          image() helper — return captures as MCP image blocks
-│   │   ├── unityConnection.js TCP client to the Editor (request/response by id)
+│   │   ├── adb.js            adb/emulator shell-out helpers
+│   │   ├── unityCli.js       unityCommand(name, args, {projectPath}) — shells out to
+│   │   │                     `unity command <name> --format json --no-banner
+│   │   │                     --non-interactive [--key value ...]`. The ONLY place the
+│   │   │                     Node server talks to Unity (only html_to_unity's build
+│   │   │                     step uses it, to call ui_build_from_manifest)
 │   │   └── registry.js       registerTools(server, tools, ctx) — wraps each handler
 │   └── tools/
 │       ├── index.js          barrel: spreads every group into `allTools`
-│       ├── adb/              Tier 1 — ADB device control (Node-only)
-│       ├── androidBuild/     Tier 2 — Android build/config (Unity bridge)
-│       ├── emulator/         Tier 3 — emulator + SDK env (Node-only)
-│       ├── gameObject/       GameObjects & Components (Unity bridge)
-│       ├── sceneAssets/      Scenes, Assets, Prefabs (Unity bridge)
-│       ├── scripts/          Scripts, Materials, Shaders (Unity bridge)
-│       ├── editor/           Editor/Console/Packages/Tests (Unity bridge)
-│       ├── capture/          Visual capture → image results (Unity bridge)
-│       ├── ui/               uGUI authoring: ui_create / rect_transform_set / ui_dump / ui_build_from_manifest (Unity bridge)
-│       ├── sprites/          sprite_import / sprite_generate — TextureImporter + procedural PNGs (Unity bridge)
-│       └── bridge/           HTML→Unity art pipeline (Playwright). Files:
+│       ├── adb/              Android device control (Node-only, 12 tools)
+│       ├── emulator/         AVD lifecycle + SDK env (Node-only, 5 tools)
+│       └── bridge/           HTML→Unity art pipeline (Playwright, 4 tools). Files:
 │                               decompose.js   — shared browser-side DOM walk: component detection
 │                                                (data-ui → <button> auto-segment → body fallback) + layer
 │                                                classify (kind/format[glowing inline-svg→png]/9-slice/anchor); peels EVERY visual layer
@@ -43,22 +39,37 @@ unimancer/
 │                                                have one — inline OR outDir + preview-index.json for the popout (Node-only)
 │                               htmlExport.js  — html_export: write per-component PNG/SVG layers + manifest.json
 │                                                (PNG via captureLayerPng → transparent shape + glow; SVG xmlns + CSS-var resolve)
-│                               html_to_unity.js — one-shot orchestrator: html_export → ui_build_from_manifest per
-│                                                manifest (export Node-only; build needs Unity)
-└── unity/                    ── the Unity UPM package (C#) ──
-    ├── package.json          UPM manifest (com.unimancer.mcp)
+│                               html_to_unity.js — one-shot orchestrator: html_export → `unityCommand("ui_build_from_manifest", …)`
+│                                                per manifest (export Node-only; build needs Unity via the CLI)
+└── unity/                    ── the Unity UPM package (C#) — no longer a bridge ──
+    ├── package.json          UPM manifest (com.unimancer.mcp), depends on com.unity.pipeline 0.6.0-exp.1
     └── Editor/
-        ├── Core/
-        │   ├── McpToolBase.cs base class: Name/Description/IsAsync/Execute/ExecuteAsync
-        │   └── McpBridge.cs   [InitializeOnLoad] TCP server; reflects over McpToolBase
         ├── Setup/
         │   └── UnimancerSetupWindow.cs  Window → Unimancer → Setup (status + config)
-        ├── Chat/              in-Editor chat that drives the local `claude` CLI (no API key)
+        ├── Chat/              in-Editor chat that drives the local `claude` CLI (no API key);
+        │                      writes an mcp-config registering BOTH `unity` and `unimancer` servers
         │   ├── ClaudeCliSession.cs    spawns `claude -p` stream-json, parses events
         │   ├── UnimancerChatWindow.cs Window → Unimancer → Chat (IMGUI panel)
         │   └── BridgePreviewWindow.cs HTML Preview popout: shows html_preview per-component crops
-        └── Tools/             one C# class per engine-side tool (+ shared helpers)
+        └── Commands/          the ONLY tool-registration surface left in C# — ten
+                                [CliCommand] static methods, discovered by com.unity.pipeline
+                                and surfaced through `unity mcp` alongside its ~150 built-ins
+            ├── UiCommands.cs        tag "ui": ui_create, rect_transform_set, ui_dump, ui_build_from_manifest, ui_click
+            ├── SpriteCommands.cs    tag "sprites": sprite_import, sprite_generate
+            ├── GameObjectCommands.cs tag "gameobjects": component_list (lists components, no serialized-property dump)
+            ├── AnimationCommands.cs  tag "animation": animator_set_parameter (float/int/bool/Trigger, Play-Mode caveat)
+            ├── AndroidCommands.cs    tag "android": android_player_settings (get-or-set; never touches keystore passwords)
+            └── GoResolve.cs, CommandInputs.cs   shared helpers (resolve a target, parse structured args)
 ```
+
+**Deleted** (now covered by `com.unity.pipeline` / `unity mcp`, see the README's
+[what-moved-where table](../README.md#what-moved-where)): the old Unity TCP
+client module, MCP resources (`src/core/resources.js`), the Unity-connection
+field on the tool context, the tool groups `androidBuild`, `animation`,
+`batch`, `capture`, `editor`, `gameObject`, `navmesh`, `profiler`, `runtime`,
+`sceneAssets`, `scriptEdit`, `scripts`; and on the C# side the old Editor-side
+and in-Player TCP servers, the whole `Runtime/` folder, and every
+`Editor/Tools/*` file covered by a built-in pipeline command.
 
 ## Call flow
 
@@ -66,34 +77,39 @@ unimancer/
 AI client → (stdio) → src/index.js
   → registry.registerTools(): for each tool, server.registerTool(name, schema, wrap(handler))
   → tool.handler(args, ctx):
-      • Node-only (adb/emulator/*) → shell out via core/adb.js, return ok()/err()
-      • engine tool → ctx.unity.request(name, args)  (core/unityConnection.js)
-            → TCP(JSON) → McpBridge.Dispatch() → Tools/<Name>Tool.Execute(JObject)
-            → result JObject → back over WS → handler wraps as ok()/image()
+      • adb/emulator → shell out via core/adb.js, return ok()/err()
+      • bridge (html_inventory/html_preview/html_export) → Playwright, Node-only
+      • bridge (html_to_unity) → html_export, then core/unityCli.js's unityCommand()
+            → shells out `unity command ui_build_from_manifest --format json …`
+            → com.unity.pipeline's server (in the Editor) dispatches to UiCommands.cs
+            → JSON result parsed back into the tool's ok()/err()
 ```
 
-Request/response is correlated by a monotonic `id`; engine `Execute` runs on the
-Unity main thread (the bridge marshals it). Tools that span multiple frames
-(package manager, test runner) set `IsAsync => true` and override `ExecuteAsync`.
-
-## Shared C# helpers (`unity/Editor/Tools/`)
-
-| File | Role |
-|---|---|
-| `GoResolve.cs` | resolve a `target` (hierarchy path or instanceID) → GameObject; build path |
-| `ComponentTypeResolve.cs` | resolve a component type name across loaded assemblies |
-| `PathGuard.cs` | reject paths with `..` / outside `Assets/` for file-writing tools |
+There's no persistent connection and no request/response correlation to
+maintain on the Node side anymore — each `unityCommand()` call is one
+`execFile` round-trip to the `unity` CLI, which owns talking to the Editor.
 
 ## Where to make which change
 
 | You want to… | Edit |
 |---|---|
-| add a Node-only tool (adb/emulator) | new file in the group + its `index.js` |
-| add an engine tool | new JS file (group + `index.js`) **and** a `Tools/<Name>Tool.cs` (Name == JS name) |
-| change the wire protocol | `core/unityConnection.js` **and** `Core/McpBridge.cs` (keep them in sync) |
-| change result shapes | `core/types.js` / `core/image.js` |
-| add a new tool group | new `src/tools/<group>/index.js` + import it in `src/tools/index.js` |
+| add a Node-only tool (adb/emulator/bridge) | new file in the group + its `index.js` |
+| add an engine-side command (more UGUI/sprite authoring) | a new `[CliCommand]` static method in `unity/Editor/Commands/` — `unity mcp` picks it up automatically, no Node changes needed |
+| change how the Node server calls Unity | `src/core/unityCli.js` only (it's the sole caller) |
+| change result shapes | `core/types.js` |
+| add a new Node tool group | new `src/tools/<group>/index.js` + import it in `src/tools/index.js` |
 | compose other tools (orchestrator) | import their tool objects, call `tool.handler(args, ctx)` directly, pass the **same `ctx`** through (see `bridge/html_to_unity.js`) |
+
+## How to add a tool (two paths)
+
+1. **`[CliCommand]` in `unity/Editor/Commands/`** — for anything engine-side.
+   `com.unity.pipeline` discovers it by attribute and `unity mcp` surfaces it
+   as a tool automatically; no registration, no Node-side change. Use this for
+   more UGUI/sprite work or any other Editor-state authoring.
+2. **A Node tool in `src/tools/<group>/`** — only for work that's genuinely
+   Node-side: shelling out to another CLI, browser automation (Playwright),
+   or `adb`/emulator control. If the work needs to touch a live Editor, it
+   belongs in path 1 instead — don't grow `unityCli.js` into a second bridge.
 
 ## Conventions
 

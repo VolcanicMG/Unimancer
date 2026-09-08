@@ -91,7 +91,7 @@ namespace Unimancer
 
         // Live sessions so a domain reload can kill their in-flight processes. Without this
         // the claude process (and its child node MCP server) is orphaned on recompile —
-        // streaming into a dead handler and keeping port 8090's client side busy. Static
+        // streaming into a dead handler and leaking the claude process. Static
         // state resets each reload, so this never accumulates across reloads.
         private static readonly System.Collections.Generic.List<ClaudeCliSession> Live = new System.Collections.Generic.List<ClaudeCliSession>();
 
@@ -111,7 +111,7 @@ namespace Unimancer
         /// <param name="wrapWsl">Run via <c>wsl.exe bash -lc</c> (Unity on Windows, Claude in WSL).</param>
         /// <param name="claudeCmd">The claude executable name/path (default "claude").</param>
         /// <param name="nodeServerPath">Path to Unimancer <c>src/index.js</c> as seen by the shell that runs claude.</param>
-        /// <param name="allowedTools">Value for <c>--allowedTools</c> (default allows the unimancer MCP server).</param>
+        /// <param name="allowedTools">Value for <c>--allowedTools</c> (default allows the unity + unimancer MCP servers).</param>
         /// <param name="model">Optional model override; empty = Claude Code default.</param>
         /// <param name="systemPrompt">Extra project context appended to the system prompt (empty = none).</param>
         /// <param name="permissionMode">Claude Code --permission-mode: "acceptEdits" (auto) or "plan" (propose only).</param>
@@ -122,7 +122,7 @@ namespace Unimancer
             _nodeServerPath = nodeServerPath ?? "";
             // Always permit the built-in Read tool so the agent can view attached
             // screenshots (and read files) — headless -p can't prompt for it otherwise.
-            var tools = string.IsNullOrEmpty(allowedTools) ? "mcp__unimancer" : allowedTools;
+            var tools = string.IsNullOrEmpty(allowedTools) ? "mcp__unity,mcp__unimancer" : allowedTools;
             if (!tools.Contains("Read")) tools += " Read";
             _allowedTools = tools;
             _model = model ?? "";
@@ -254,14 +254,27 @@ namespace Unimancer
             IsBusy = false;
         }
 
-        /// <summary>Build the inline MCP-server config that points claude at the Unimancer Node server.</summary>
+        /// <summary>
+        /// Build the inline MCP-server config registering both servers the chat uses:
+        /// <c>unity</c> (the official CLI's Editor command surface, scoped to this
+        /// project) and <c>unimancer</c> (the Node server: adb/emulator + HTML bridge).
+        /// </summary>
+        /// <returns>The mcpServers JSON written to the temp --mcp-config file.</returns>
         private string BuildMcpConfig()
         {
             // The shell that runs claude already resolves `node`; the path is shell-native.
+            // The `unity` CLI must be the Windows binary even under WSL: Editor discovery
+            // reads a per-user lockfile on the Windows side, so a Linux `unity` sees nothing.
+            var unityCmd = _wrapWsl ? ToWslPath(UnityCliWindowsPath()) : "unity";
             var o = new JObject
             {
                 ["mcpServers"] = new JObject
                 {
+                    ["unity"] = new JObject
+                    {
+                        ["command"] = unityCmd,
+                        ["args"] = new JArray { "mcp", "--project-path", ProjectPath() }
+                    },
                     ["unimancer"] = new JObject
                     {
                         ["command"] = "node",
@@ -271,6 +284,23 @@ namespace Unimancer
             };
             return o.ToString();
         }
+
+        /// <summary>
+        /// This Unity project's root — <c>Application.dataPath</c> minus the trailing
+        /// "/Assets". Always the Editor's native (Windows) form: the `unity` CLI that
+        /// talks to this Editor is the Windows binary (see BuildMcpConfig), so it expects
+        /// a Windows path even when claude runs under WSL.
+        /// </summary>
+        /// <returns>The absolute project root path.</returns>
+        private static string ProjectPath()
+        {
+            var dataPath = UnityEngine.Application.dataPath;
+            return Path.GetDirectoryName(dataPath) ?? dataPath;
+        }
+
+        /// <summary>Where the Unity CLI installer puts the Windows binary (%LOCALAPPDATA%\Unity\bin\unity.exe).</summary>
+        private static string UnityCliWindowsPath() =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Unity", "bin", "unity.exe");
 
         /// <summary>Parse one NDJSON line from stream-json output into a <see cref="ChatEvent"/>.</summary>
         private void ParseLine(string line)

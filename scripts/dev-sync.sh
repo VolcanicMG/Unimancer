@@ -10,17 +10,20 @@
 #   only ever edit here — Unity picks the changes up on its next focus/recompile.
 #
 # USAGE
-#   ./scripts/dev-sync.sh [DEST_PACKAGE_DIR]
+#   ./scripts/dev-sync.sh [--once] [--delete] [DEST_PACKAGE_DIR]
 #     DEST defaults to $UNIMANCER_UNITY_DEST, else the Mobile Mayhem project path.
 #     Poll interval: $UNIMANCER_SYNC_INTERVAL seconds (default 2).
+#     --once:   one sync pass (+ recompile request), then exit — no background loop.
+#     --delete: also remove files from DEST that no longer exist here (*.meta kept).
+#               Use after deleting/renaming C# files, or a stale copy keeps compiling.
 #   Run it in a spare terminal while you work; Ctrl-C to stop.
 #
 # NOTES
 #   * One-directional (repo -> embedded). Never edit the embedded copy directly;
 #     it gets overwritten.
 #   * *.meta files are excluded so Unity's generated GUIDs/references survive.
-#   * No --delete: files you remove/rename here are not auto-removed from the
-#     embedded copy (rare; clean up by hand if needed).
+#   * Deletion is opt-in (--delete): without it, files you remove/rename here
+#     stay in the embedded copy.
 
 set -euo pipefail
 
@@ -28,6 +31,16 @@ set -euo pipefail
 # so rsync copies its *contents* into DEST).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$SCRIPT_DIR/../unity/"
+
+DELETE=(); ONCE=0
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --once) ONCE=1 ;;
+    --delete) DELETE=(--delete) ;;
+    *) echo "unknown flag: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 # Dest = the embedded copy Unity compiles. Override via arg 1 or env var.
 DEST="${1:-${UNIMANCER_UNITY_DEST:-/mnt/c/Users/ethan/UnityGames/Mobile Mayhem/Packages/com.unimancer.mcp/}}"
@@ -47,9 +60,9 @@ fi
 #   Unity recompile constantly. Checksum only transfers files whose bytes differ.
 # We omit perms/owner/group (-pog): meaningless on drvfs and cause churn.
 # The tree is ~100 small files, so hashing every couple seconds is negligible.
-RSYNC=(rsync -rlt --checksum --exclude='*.meta' --out-format='  ↳ %n')
+RSYNC=(rsync -rlt --checksum "${DELETE[@]}" --exclude='*.meta' --out-format='  ↳ %n')
 
-echo "▶ dev-sync: mirroring (Ctrl-C to stop)"
+echo "▶ dev-sync: mirroring$([[ $ONCE == 1 ]] && echo ' once' || echo ' (Ctrl-C to stop)')"
 echo "  from: $SRC"
 echo "  to:   $DEST"
 echo "  poll: every ${INTERVAL}s"
@@ -57,8 +70,20 @@ echo
 
 trap 'echo; echo "■ dev-sync stopped."; exit 0' INT TERM
 
+# After a changed pass, ask the Editor to recompile via the Unity CLI (no focus needed).
+# Project root = two levels above the embedded package dir; Windows form for unity.exe.
+PROJECT="$(cd "$DEST/../.." && pwd)"
+command -v wslpath >/dev/null && PROJECT="$(wslpath -w "$PROJECT")"
+recompile() {
+  command -v unity >/dev/null || return 0
+  UNITY_NO_BANNER=1 UNITY_NON_INTERACTIVE=1 unity command recompile --project-path "$PROJECT" --format json >/dev/null 2>&1 \
+    && echo "  ⟳ recompile requested" || echo "  ⚠ recompile request failed (Editor not reachable?)"
+}
+
 # Initial full pass.
-"${RSYNC[@]}" "$SRC" "$DEST" || true
+out="$("${RSYNC[@]}" "$SRC" "$DEST" 2>&1 || true)"
+[[ -n "$out" ]] && { echo "$out"; recompile; }
+[[ $ONCE == 1 ]] && { echo "■ done."; exit 0; }
 
 while true; do
   sleep "$INTERVAL"
@@ -66,5 +91,6 @@ while true; do
   if [[ -n "$out" ]]; then
     echo "[$(date +%H:%M:%S)] synced:"
     echo "$out"
+    recompile
   fi
 done

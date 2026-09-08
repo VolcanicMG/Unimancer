@@ -2,9 +2,9 @@
  * Core contract shared by every Unimancer tool, expressed as JSDoc typedefs.
  *
  * A tool is self-describing: a name, an LLM-facing description, a Zod input
- * schema (raw shape, as the MCP SDK expects), and an async handler. Tools that
- * talk to the Unity Editor use `ctx.unity`; Android tools that only shell out to
- * `adb`/`emulator` ignore it.
+ * schema (raw shape, as the MCP SDK expects), and an async handler. Tools shell
+ * out to `adb`/`emulator`/Playwright directly; the one step that needs the Unity
+ * Editor goes through `unityCommand()` (core/unityCli.js), not through `ctx`.
  */
 
 /**
@@ -22,10 +22,7 @@
  */
 
 /**
- * @typedef {Object} ToolContext
- * @property {import("./unityConnection.js").UnityConnection} unity - live Editor connection (may be disconnected).
- * @property {Map<string, ToolDefinition>} [tools] - name->tool registry, injected at startup for batch_execute dispatch.
- * @property {import("./unityConnection.js").UnityConnection} [runtime] - in-build/Play-mode runtime bridge connection (port 8091).
+ * @typedef {Object} ToolContext - shared per-server state passed to every handler (currently empty).
  */
 
 /**

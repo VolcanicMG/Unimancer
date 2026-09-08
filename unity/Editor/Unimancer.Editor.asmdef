@@ -1,8 +1,13 @@
 {
   "name": "Unimancer.Editor",
   "rootNamespace": "Unimancer",
-  "references": ["UnityEngine.UI"],
-  "includePlatforms": ["Editor"],
+  "references": [
+    "UnityEngine.UI",
+    "Unity.Pipeline"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
   "autoReferenced": true,
   "noEngineReferences": false
 }

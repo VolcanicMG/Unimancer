@@ -1,8 +1,10 @@
 # Using Unimancer
 
-Unimancer is an MCP server that lets an AI assistant drive the Unity Editor — and
-a running game — with **107 tools** across 17 groups, plus live resources and
-event notifications. First-class **Android** tooling sets it apart.
+Unimancer is now a **companion** MCP server that sits next to Unity's own
+`unity mcp` — **21 tools** across 3 groups (`adb`, `emulator`, `bridge`),
+covering what Unity's ~150 built-ins don't: Android devices, and the
+HTML→Unity art pipeline. UGUI/sprite authoring rides on Unity's own transport
+as two contributed pipeline commands (`ui_*`, `sprite_*`).
 
 ---
 
@@ -10,50 +12,64 @@ event notifications. First-class **Android** tooling sets it apart.
 
 ```
 [ AI client (Claude/Cursor) ]
-        │ MCP (stdio)
-        ▼
-[ Unimancer server (Node) ]──TCP :8090──> [ Unity EDITOR bridge ]   (always, while the Editor is open)
-        │      │
-        │      └─────────────TCP :8091──> [ Unity RUNTIME bridge ]  (only in Play mode or a Dev build)
         │
-        └──shell──> adb / emulator        (Android tools, no Unity needed)
+        ├── MCP/stdio ──> unity mcp ──> com.unity.pipeline (in the open Editor)
+        │                 ~150 built-in tools (scenes, GameObjects, assets,
+        │                 prefabs, scripts, tests, build, capture, eval…)
+        │                 + unimancer's 10 [CliCommand]s: ui_*, sprite_*,
+        │                 component_list, animator_set_parameter, android_player_settings
+        │
+        └── MCP/stdio ──> unimancer (Node, 21 tools)
+                          |-- adb / emulator   (Android, no Unity needed)
+                          |-- Playwright       (HTML -> Unity art bridge)
+                          `-- `unity command`  (only for ui_build_from_manifest)
 ```
 
-- **Editor bridge (`:8090`)** — runs whenever the Unity Editor is open. Powers the
-  Editor tools (scenes, GameObjects, assets, build, profiler, …).
-- **Runtime bridge (`:8091`)** — runs only while the game is *running* (Editor Play
-  mode, or a Development build). Powers the `runtime_*` tools that drive a live game.
-- Keep the Unity Editor open while using Editor tools.
+- **`unity mcp`** — Unity's own stdio MCP server (from the `unity` CLI). Talks
+  directly to `com.unity.pipeline` inside a running Editor over a token-gated
+  localhost HTTP server. Keep the Editor open while using its tools.
+- **`unimancer`** — this Node server. `adb`/`emulator` need no Unity at all;
+  `bridge`'s export/preview tools are pure Playwright; only `html_to_unity`'s
+  final build step shells out to `unity command`.
+
+See the [README's "what moved where" table](../README.md#what-moved-where) for
+exactly which built-in `unity mcp` commands replace each tool group unimancer
+used to own.
 
 ---
 
 ## 2. Setup
 
-1. **Install server deps** (in the repo):
+1. **Install the Unity CLI** (`unity --version` to check):
+   ```bash
+   curl -fsSL https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.sh | UNITY_CLI_CHANNEL=beta bash   # macOS/Linux
+   ```
+   ```powershell
+   $env:UNITY_CLI_CHANNEL='beta'; irm https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.ps1 | iex   # Windows
+   ```
+2. **Install the pipeline package into your project**: `unity pipeline install --project-path /path/to/YourProject`.
+3. **Add the Unimancer UPM package** (Package Manager → **+**):
+   - Add from git URL → `…/Unimancer.git?path=/unity` (public repo), or
+   - Add from disk → `unity/package.json` (same OS as Unity; for WSL, use a
+     Windows clone or the embedded-copy approach).
+4. **Install server deps** (in this repo):
    ```bash
    guard install      # or: npm install
    ```
-2. **Connect your MCP client** — print the exact config:
-   ```bash
-   node scripts/setup.mjs            # prints config for Claude Code / Desktop / Cursor
-   node scripts/setup.mjs --write    # drops a .mcp.json in the current folder
-   ```
-   Claude Code one-liner:
+5. **Configure your MCP client** — `unity mcp configure claude-code --project-path /path/to/YourProject`
+   registers the `unity` server; add `unimancer` alongside it:
    ```bash
    claude mcp add unimancer -- node /ABS/PATH/unimancer/src/index.js
    ```
-3. **Add the Unity package** to your project (Package Manager → **+**):
-   - Add from disk → `unity/package.json` (on the same OS as Unity; for WSL, use a
-     Windows clone or the embedded-copy approach), or
-   - Add from git URL → `…/Unimancer.git?path=/unity` (public repo only).
-   The bridge auto-starts on load. Check **Window → Unimancer → Setup** (it also
-   writes a `.mcp.json` for you).
-4. **Verify**: the Unity Console shows `[Unimancer] Bridge listening on tcp://127.0.0.1:8090` and `Registered N tools.`
-   If it logs a bind/socket error instead, use **Window → Unimancer → Restart Bridge** (or the **Restart** button in Setup / the Chat header).
+   Or print/write the combined config with `node scripts/setup.mjs [--write]`.
+6. **Verify**: `unity status` shows a connected Editor; `unity mcp --project-path <p>`
+   over stdio lists ~150+10 tools. The Unimancer tools appear once the client
+   reconnects with the `unimancer` server entry present.
 
-> **WSL note:** if Unity is on Windows and your MCP client runs in WSL, enable WSL
-> *mirrored networking* so `127.0.0.1:8090` is shared, or run the Node server on
-> Windows. (The Setup window has a "wrap with wsl" config option.)
+> **WSL note:** when Unity runs on Windows and your agent runs in WSL, put a
+> small `unity` shim on the WSL PATH that `exec`s the Windows `unity.exe` —
+> `unity mcp` then drives the Windows Editor process through it. The
+> `unimancer` Node server itself runs natively in WSL.
 
 ---
 
@@ -61,92 +77,35 @@ event notifications. First-class **Android** tooling sets it apart.
 
 Tools are named `group_action`. Just ask in natural language — the client picks the tool.
 
-| Group | Count | Examples / what to ask |
+| Group | Count | Needs Unity? | Examples / what to ask |
+|---|---|---|---|
+| **adb** | 12 | no | "install build.apk on the device", "stream the Unity logcat", "screenshot the phone" |
+| **emulator** | 5 | no | "list AVDs", "start the Pixel emulator", "check my Android SDK setup" |
+| **bridge** | 4 | export/preview: no (Playwright); build: yes (`unity command`) | "inventory this Claude Design HTML mockup", "preview this HTML" (`html_preview` — full crop + every separated layer per component (frame, sub-sprites, icons), each isolated as a shape-accurate transparent sprite (no black corners) with its own 9-slice or none; inline, or written to outDir for the Unity preview popout (auto-cleaned)), "export this HTML into Unity components", "take this HTML and build it in Unity" (`html_to_unity`, one-shot export+build). Needs `playwright@1.61.0` + `npx playwright install chromium` |
+
+**Everything else** now lives in `unity mcp`'s ~150 built-ins, plus unimancer's
+10 contributed pipeline commands:
+
+| Contributed command | Tag | What it does |
 |---|---|---|
-| **adb** | 12 | "install build.apk on the device", "stream the Unity logcat", "screenshot the phone" |
-| **androidBuild** | 6 | "switch to Android", "set the package id and IL2CPP/ARM64", "build an AAB", "configure the keystore" |
-| **emulator** | 5 | "list AVDs", "start the Pixel emulator", "check my Android SDK setup" |
-| **gameObject** | 10 | "create a Cube at 0,5,0", "add a Rigidbody to Player", "set Player's position" |
-| **sceneAssets** | 12 | "open MainScene", "show the hierarchy", "find all materials", "make a prefab from Enemy" |
-| **scripts** | 8 | "create a script", "read PlayerController.cs", "find 'using' in Assets" |
-| **editor** | 12 | "enter play mode", "read console errors", "run EditMode tests", "what's selected?" |
-| **capture** | 4 | "screenshot the Game view", "render the scene from 6 angles" (returns images) |
-| **scriptEdit** | 3 | "validate this C#", "apply these edits to Foo.cs" (sha-guarded, no clobber) |
-| **profiler** | 4 | "what's memory usage?", "sample frame stats for 60 frames" |
-| **navmesh** | 4 | "bake the navmesh", "bake lighting" |
-| **animation** | 5 | "create a clip", "add a position curve", "inspect the Animator on Boss" |
-| **batch** | 1 | run many tools in one call (see §6) |
-| **runtime** | 11 | drive a *running* game (see §5) |
-| **ui** | 4 | "create a Button on the Canvas", "stretch this panel to fill", "dump the canvas tree", "build this component from its manifest" |
-| **sprites** | 2 | "import panel.png as a 9-slice sprite", "generate a 64x64 radial-gradient sprite" |
-| **bridge** | 4 | "inventory this Claude Design HTML mockup", "preview this HTML" (`html_preview` — full crop + every separated layer per component (frame, sub-sprites, icons), each isolated as a shape-accurate transparent sprite (no black corners) with its own 9-slice or none; inline, or written to outDir for the Unity preview popout (auto-cleaned)), "export this HTML into Unity components", "take this HTML and build it in Unity" (`html_to_unity`, one-shot export+build). Export/preview are Node-only (Playwright); the build step needs Unity. Needs `playwright@1.61.0` + `npx playwright install chromium` |
+| `ui_create` | `ui` | create a UI archetype (Button/Panel/Text/…) on a Canvas |
+| `rect_transform_set` | `ui` | set RectTransform layout / anchor presets |
+| `ui_dump` | `ui` | dump a canvas's UI tree |
+| `ui_build_from_manifest` | `ui` | build a GameObject tree from an `html_to_unity`/`html_export` manifest |
+| `ui_click` | `ui` | fire pointer enter/down/up/click through `ExecuteEvents` on the EventSystem (plus submit for `Selectable`s) against a hierarchy path or name — no Input System dependency, works in Editor Play Mode |
+| `sprite_import` | `sprites` | import an image as a 9-slice sprite |
+| `sprite_generate` | `sprites` | procedurally generate a sprite PNG |
+| `component_list` | `gameobjects` | list a GameObject's components (type/enabled/instanceID) — lighter than the built-in `get_component_properties`: no serialized-property dump |
+| `animator_set_parameter` | `animation` | set an Animator parameter (float/int/bool), or fire a Trigger when no value is given; most meaningful while the Animator is actively evaluating in Play Mode — in edit mode the value generally doesn't persist |
+| `android_player_settings` | `android` | get-or-set Android player settings (application id, bundle version code, min/target SDK, target architectures, scripting backend, keystore name/alias); a bare call reads, supplied args are applied. **Never accepts or returns keystore/alias passwords** — those go through `unity build --android-keystore-*` |
+
+For the ~150 Unity built-ins (scenes, GameObjects, components, assets, prefabs,
+scripts, animation, baking, build, tests, packages, capture, `eval`, …), see
+`unity list` / `unity command` or the `unity-cli` / `unity-pipeline` skills.
 
 ---
 
-## 4. Resources (read-only context)
-
-The client can read live Editor state as resources without spending a tool call:
-
-| URI | Contents |
-|---|---|
-| `unity://scene/hierarchy` | active scene tree |
-| `unity://console` | recent console entries |
-| `unity://selection` | current selection |
-| `unity://project` | project + build settings |
-| `unity://editor/state` | play/pause/compile state |
-
----
-
-## 5. Notifications (events)
-
-The bridge pushes events to the client as MCP logging notifications, so the AI can
-react without polling:
-- `compilation_finished` — scripts recompiled
-- `play_mode` — entered/exited play mode
-- `console_error` — an error/exception/assert was logged
-
-Example: "edit this script, then tell me when it compiles and whether it errored."
-
----
-
-## 6. Batch execution
-
-`batch_execute` runs several tools in one request — fewer round-trips for multi-step
-work. Conceptually:
-```json
-{ "calls": [
-  { "tool": "gameobject_create", "args": { "name": "Enemy", "primitive": "Capsule" } },
-  { "tool": "component_add",     "args": { "target": "Enemy", "componentType": "Rigidbody" } },
-  { "tool": "gameobject_set_transform", "args": { "target": "Enemy", "position": { "x":0,"y":3,"z":0 } } }
-], "stopOnError": true }
-```
-
----
-
-## 7. Runtime / in-player (driving a running game)
-
-The `runtime_*` tools talk to the **runtime bridge (:8091)**, which only listens
-while the game is running:
-- **Play mode:** just press Play; the bridge starts automatically.
-- **Development build (desktop):** make a *Development Build*; it listens on :8091.
-- **Android device:** Development Build with **INTERNET permission** (use
-  `android_manifest` to add it), then forward the port from the host:
-  ```bash
-  adb forward tcp:8091 tcp:8091
-  ```
-  Release builds never open the socket.
-
-Tools: `runtime_scene_info`, `runtime_find_objects`, `runtime_get_component`,
-`runtime_set_component_property`, `runtime_call_method` (invoke a method on a live
-component — "drive the game"), `runtime_set_timescale` (pause/slow/speed), `runtime_log_tail`,
-`runtime_ui_list` (discover clickable uGUI elements), `runtime_ui_click` (click a UI element to
-test interactions), `runtime_camera_control` (pan/move/rotate/zoom the camera to look around), `runtime_pointer_drag` (swipe/drag a ScrollRect or IDragHandler to pan/scroll).
-
-Example: "set timeScale to 0.2, find the Player, and call TakeDamage(10) on its Health component."
-
----
-
-## 8. In-Editor chat (no API key)
+## 4. In-Editor chat (no API key)
 
 **Window → Unimancer → Chat** opens a chat panel that talks to your local `claude`
 CLI in headless streaming mode (`claude -p --output-format stream-json`). Because it
@@ -154,8 +113,10 @@ drives Claude Code itself, it:
 
 - runs on your **Claude subscription, not a pay-per-token API key** (it never passes
   `--bare` and unsets `ANTHROPIC_API_KEY`, so Claude Code uses your logged-in auth);
-- inherits the **full Unimancer MCP tool surface** automatically — the agent loop and
-  tool dispatch live in Claude Code, not in this window.
+- registers an mcp-config with **both** servers — `unity` (`unity mcp --project-path
+  <project>`) and `unimancer` (this Node server) — with `allowedTools`
+  `mcp__unity,mcp__unimancer`, so the agent loop in Claude Code drives the full
+  combined tool surface.
 
 Requirements & notes:
 - The `claude` CLI must be installed and logged in on the machine. On Windows+WSL,
@@ -163,9 +124,9 @@ Requirements & notes:
 - Set the Node server path once in **Window → Unimancer → Setup**; the chat reuses it.
 - Conversations are multi-turn (`--resume <session_id>`); tool calls render inline.
 - **Settings** (in the Chat window): `claude` command, model override, and the
-  `--allowedTools` value (default `mcp__unimancer` = allow all Unimancer tools).
-- This feature is for machines that have Claude Code; the MCP server itself still works
-  with any MCP client independently.
+  `--allowedTools` value (default `mcp__unity,mcp__unimancer`).
+- This feature is for machines that have Claude Code; both MCP servers still work
+  with any MCP client independently of this window.
 
 **Rich editor features:**
 - **Reference objects** — drag GameObjects/assets anywhere onto the chat window (a drop
@@ -176,7 +137,8 @@ Requirements & notes:
 - **Clickable replies** — when the agent writes `[[unity:<handle>]]`, the window renders a
   `↪ <name>` link that selects + pings the object in the Hierarchy/Project. Handles use
   `GlobalObjectId` (or a hierarchy path), seeded from the objects you attach.
-- **Inline images** — screenshots returned by the capture tools render directly in the thread.
+- **Inline images** — screenshots returned by `capture_game_view`/`capture_scene_view` render
+  directly in the thread.
 - **History** — every conversation is saved under `<Project>/Library/Unimancer/Chats/`
   (excluded from version control) and reloads via the **History** button, resuming the
   underlying Claude Code session. The menu also has **Delete/‹chat›** (per-chat, confirmed)
@@ -190,8 +152,7 @@ Requirements & notes:
 - **Keep typing while it streams** — the input stays live during a reply; pressing **Send**
   (it shows **Queue** while busy) queues a follow-up that auto-sends when the turn ends.
 - **Survives recompiles** — the chat reopens the last conversation and seeds `--resume` after
-  a script recompile / Play-mode toggle, so it picks up where it left off. The Editor bridge
-  also **self-heals** (re-binds port 8090 in the background) instead of staying down.
+  a script recompile / Play-mode toggle, so it picks up where it left off.
 - **Editor-aware** — the agent is told it's in the Unimancer Chat panel inside the Unity
   Editor, with the live Unity version / project / active scene as context.
 - **Pick-an-answer buttons** — when the agent offers a choice (it emits a `unimancer:ask`
@@ -201,7 +162,6 @@ Requirements & notes:
   them with the Read tool.
 - **Edit diffs** — when the agent uses the built-in Edit/Write/MultiEdit tools, the panel
   shows a red/green diff of the change (capped for large writes), like the normal console.
-  (Unity-side script edits made via MCP tools show the tool line, not a diff.)
 - **Keep chat alive in Play mode** (Settings toggle) — entering Play normally triggers a
   domain reload that interrupts the chat; this disables that reload so a turn keeps running.
   Tradeoff: statics/events aren't reset between Play sessions (a script recompile still
@@ -224,28 +184,26 @@ Requirements & notes:
 
 ---
 
-## 9. Environment variables
+## 5. Environment variables
 
 | Var | Default | Purpose |
 |---|---|---|
-| `UNITY_MCP_URL` | `tcp://127.0.0.1:8090` | Editor bridge endpoint |
-| `UNITY_MCP_RUNTIME_URL` | `tcp://127.0.0.1:8091` | Runtime bridge endpoint |
+| `UNITY_CLI` | `unity` | path/name of the Unity CLI binary the Node server shells out to |
+| `UNITY_PROJECT_PATH` | — | project passed to `unity command` when a tool doesn't specify one |
 | `ADB_PATH` | `adb` | path to adb |
 | `EMULATOR_PATH` | `emulator` | path to the Android emulator |
 
 ---
 
-## 10. Troubleshooting
+## 6. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| No `Window → Unimancer` menu / no "Registered" log | C# didn't compile — check the Console for `CS####` errors |
-| `Unity connection failed at 127.0.0.1:8090` | Editor not open, or (WSL) localhost not shared — enable mirrored networking |
-| Chat/Setup shows **Bridge ○ not listening** | click **Restart Bridge** (menu or button). If it persists across restarts, an older Unity child (e.g. AI Assistant `relay_win.exe`) inherited the socket and squats 8090 — `netstat -ano \| findstr :8090`, end that PID, then Restart Bridge. The bridge now marks its socket non-inheritable to prevent this |
-| `capture_*` fails / PNG not found (WSL) | fixed — captures now return the image **inline** over the bridge and `outputPath`/`outputDir` are optional, so no shared file is needed. Update the embedded package + restart the MCP client to pick it up |
-| `runtime_*` tools time out | the game isn't running (enter Play mode / dev build), or forward :8091 on device |
+| `unity status` shows no connected Editor | open the project's Editor and wait for it to finish loading; a Safe Mode project (compile errors) won't expose the pipeline — fix the errors and restart |
+| `unity mcp` doesn't list `ui_*`/`sprite_*` | the Unimancer UPM package isn't installed in the project, or the Editor hasn't recompiled since adding it — check the Console for `CS####` errors |
+| `html_to_unity`'s build step fails | confirm `unity` is on PATH (or set `UNITY_CLI`) and `UNITY_PROJECT_PATH`/the tool's `projectPath` arg points at an open, non-Safe-Mode Editor |
 | `instanceID` looks like a huge number | it's a string (EntityId, exceeds JS int range) — target objects by **path** or pass the id back as a string |
-| Changed C# but no effect | Unity recompiles on focus — alt-tab to the Editor; restart the MCP client for Node-side changes |
+| Changed C# but no effect | Unity recompiles on focus — alt-tab to the Editor, or run `unity command recompile` |
 | Package add fails over `\\wsl.localhost\…` | use a Windows clone or embed into `<Project>/Packages/`; private repo blocks the git-URL method |
 | Chat window does nothing / errors | `claude` not on PATH in the spawned shell, not logged in, or `ANTHROPIC_API_KEY` is set (unset it for subscription auth); set the Node path in Setup |
 

@@ -10,8 +10,7 @@
  * This lets Claude SEE what `html_export` would produce, then add `data-*` tags
  * to the HTML to refine the decomposition before committing assets to disk.
  *
- * Runs entirely in Node via Playwright — it does NOT touch the Unity Editor, so
- * it ignores `ctx.unity`.
+ * Runs entirely in Node via Playwright — it does NOT touch the Unity Editor.
  */
 import { z } from "zod";
 import { ok, err } from "../../core/types.js";

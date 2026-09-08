@@ -1,9 +1,0 @@
-{
-  "name": "Unimancer.Runtime",
-  "rootNamespace": "Unimancer.Runtime",
-  "references": [],
-  "includePlatforms": [],
-  "excludePlatforms": [],
-  "autoReferenced": true,
-  "noEngineReferences": false
-}

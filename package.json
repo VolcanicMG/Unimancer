@@ -1,7 +1,7 @@
 {
   "name": "unimancer",
   "version": "0.1.0",
-  "description": "Command the Unity engine with AI — an MCP server with deep Android build tooling.",
+  "description": "Companion to the Unity CLI — an MCP server for Android device/emulator tooling and the HTML→Unity art bridge, plus UGUI/sprite authoring commands for com.unity.pipeline.",
   "type": "module",
   "bin": {
     "unimancer": "src/index.js"
@@ -29,11 +29,14 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.24.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "playwright": "1.61.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "vitest": "3.2.6"
+    "vitest": "4.1.11"
+  },
+  "overrides": {
+    "fast-uri": "3.1.6"
   }
 }

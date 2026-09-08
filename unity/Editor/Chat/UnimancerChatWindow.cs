@@ -34,19 +34,26 @@ namespace Unimancer
         private const string PrefWsl = "Unimancer.WrapWsl";
         private const string PrefClaude = "Unimancer.ClaudeCmd";
         private const string PrefModel = "Unimancer.ChatModel";
-        private const string PrefTools = "Unimancer.AllowedTools";
+        // v2 key: the pre-CLI default allowed only mcp__unimancer, which would block the
+        // unity MCP server for upgrading users. A new key lets DefaultAllowedTools win.
+        private const string PrefTools = "Unimancer.AllowedTools.v2";
         private const string PrefSystemPrompt = "Unimancer.SystemPrompt";
         private const string PrefPermMode = "Unimancer.PermMode";
         private const string PrefSyncSel = "Unimancer.SyncSelection";
         private const string PrefLastConv = "Unimancer.LastConvId"; // reopen the last chat after a recompile/restart
 
+        /// <summary>Default --allowedTools: the `unity` CLI MCP server plus the Unimancer Node server.</summary>
+        private const string DefaultAllowedTools = "mcp__unity,mcp__unimancer";
+
         // Default project context appended to the agent's system prompt (editable in Settings).
         private const string DefaultSystemPrompt =
-            "You are operating inside the Unity Editor via the Unimancer MCP server.\n" +
+            "You are operating inside the Unity Editor. Two MCP servers are wired up: `unity` " +
+            "(the Unity CLI's built-in Editor commands) and `unimancer` (Android/device/HTML-bridge " +
+            "tools plus the UGUI + sprite authoring commands).\n" +
             "- This project may use Unity's built-in Version Control (Unity Version Control / Plastic SCM) " +
             "or another VCS instead of git. Do NOT run `git init`, create a git repository, or assume git " +
             "is present. If version control is needed, ask the user which system they use.\n" +
-            "- Prefer the Unimancer MCP tools (mcp__unimancer__*) to inspect and modify the project.\n" +
+            "- Prefer the MCP tools (mcp__unity__*, mcp__unimancer__*) to inspect and modify the project.\n" +
             "- When you reference a Unity object the user can click, write it as " +
             "[[unity:<GlobalObjectId-or-hierarchy-path>]]. Reuse the exact handle from any " +
             "referenced objects the user attached.";
@@ -69,6 +76,18 @@ namespace Unimancer
         private int _streamIndex = -1;     // index of the assistant line being streamed into
         private bool _gotDeltas;           // did this turn stream any text?
         private bool _showSettings;
+
+        // --- Typing-performance + focus caches (keep the input box snappy while a turn streams) ---
+        private GUIStyle _inputStyle;       // built once; reused every repaint (no per-frame alloc)
+        private string _inputHeightSrc;     // the _input value the cached height was measured for
+        private float _inputHeightCached;   // last CalcHeight result; only recomputed when text changes
+        private double _lastStreamRepaint;  // throttles delta-driven repaints while streaming
+        private bool _inputFocused;         // does the input TextArea currently own keyboard focus?
+        private int _caretIndex = -1, _caretSelect = -1; // remembered caret, restored if a stream relayout zeroes it
+        // Per-message parse cache: StripLeakedToolCalls + SplitFences are pure, so cache them
+        // for finished lines instead of re-running the regex/splits on every repaint.
+        private readonly Dictionary<string, List<(bool isCode, string text)>> _fenceCache =
+            new Dictionary<string, List<(bool isCode, string text)>>();
 
         // Cached settings.
         private string _claudeCmd, _model, _allowedTools, _systemPrompt, _permMode;
@@ -113,7 +132,7 @@ namespace Unimancer
         {
             _claudeCmd = EditorPrefs.GetString(PrefClaude, "claude");
             _model = EditorPrefs.GetString(PrefModel, "");
-            _allowedTools = EditorPrefs.GetString(PrefTools, "mcp__unimancer");
+            _allowedTools = EditorPrefs.GetString(PrefTools, DefaultAllowedTools);
             _systemPrompt = EditorPrefs.GetString(PrefSystemPrompt, DefaultSystemPrompt);
             _permMode = EditorPrefs.GetString(PrefPermMode, "acceptEdits");
             _syncSelection = EditorPrefs.GetBool(PrefSyncSel, false);
@@ -211,9 +230,11 @@ namespace Unimancer
             }
             if (_session == null) return;
             bool changed = false;
+            bool structural = false; // a non-delta event (tool/diff/result/exit) → repaint now, don't coalesce
             while (_session.Events.TryDequeue(out var ev))
             {
                 changed = true;
+                if (ev.Kind != ChatEventKind.AssistantDelta) structural = true;
                 switch (ev.Kind)
                 {
                     case ChatEventKind.AssistantDelta:
@@ -278,8 +299,19 @@ namespace Unimancer
             }
             if (changed)
             {
-                _scroll.y = float.MaxValue;
-                Repaint();
+                // Don't yank the scroll to the bottom while the user is typing into the
+                // input — only auto-follow new output when they aren't actively editing.
+                if (!_inputFocused) _scroll.y = float.MaxValue;
+                // Coalesce pure streaming deltas to ~12 repaints/sec so the constant token
+                // flow can't starve the main thread (which is what made typing stutter and
+                // dropped the input's focus). Structural events (tool/diff/result/exit) still
+                // repaint immediately so they never feel laggy.
+                double now = EditorApplication.timeSinceStartup;
+                if (structural || now - _lastStreamRepaint >= 0.08)
+                {
+                    _lastStreamRepaint = now;
+                    Repaint();
+                }
             }
         }
 
@@ -560,14 +592,6 @@ namespace Unimancer
             }
             using (new EditorGUILayout.HorizontalScope())
             {
-                bool live = McpBridge.IsListening;
-                var prev = GUI.color;
-                GUI.color = live ? new Color(0.5f, 1f, 0.5f) : new Color(1f, 0.6f, 0.6f);
-                EditorGUILayout.LabelField(live ? "Bridge ● listening" : "Bridge ○ not listening", EditorStyles.miniLabel);
-                GUI.color = prev;
-                // One-click recovery when the bridge is wedged / its port was taken.
-                if (!live && GUILayout.Button("Restart", EditorStyles.miniButton, GUILayout.Width(60)))
-                    McpBridge.Restart();
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("History", EditorStyles.miniButton, GUILayout.Width(64)))
                     ShowHistoryMenu();
@@ -625,7 +649,7 @@ namespace Unimancer
             {
                 EditorPrefs.SetString(PrefClaude, _claudeCmd ?? "claude");
                 EditorPrefs.SetString(PrefModel, _model ?? "");
-                EditorPrefs.SetString(PrefTools, _allowedTools ?? "mcp__unimancer");
+                EditorPrefs.SetString(PrefTools, _allowedTools ?? DefaultAllowedTools);
                 EditorPrefs.SetString(PrefSystemPrompt, _systemPrompt ?? "");
                 EditorPrefs.SetString(PrefPermMode, _permMode ?? "acceptEdits");
                 _session = null; // rebuild with new settings on next send
@@ -781,9 +805,19 @@ namespace Unimancer
         private void DrawRichMessage(Role role, string text, GUIStyle baseStyle)
         {
             EditorGUILayout.LabelField(role == Role.User ? "<b>You</b>" : "<b>Unimancer</b>", baseStyle);
-            if (role == Role.Assistant) text = StripLeakedToolCalls(text);
             var handles = new List<string>();
-            foreach (var block in SplitFences(text))
+            // StripLeakedToolCalls + SplitFences are pure regex/splits; for the many finished
+            // messages they never change, so cache the parsed blocks and skip re-parsing on
+            // every repaint. (The live streaming line keeps changing, so it just misses.)
+            string key = text ?? "";
+            if (!_fenceCache.TryGetValue(key, out var blocks))
+            {
+                var src = role == Role.Assistant ? StripLeakedToolCalls(text) : text;
+                blocks = SplitFences(src);
+                if (_fenceCache.Count > 256) _fenceCache.Clear(); // bound growth from streaming churn
+                _fenceCache[key] = blocks;
+            }
+            foreach (var block in blocks)
             {
                 if (block.isCode) DrawCodeBlock(block.text);
                 else DrawMarkdownText(block.text, baseStyle, handles);
@@ -1118,9 +1152,19 @@ namespace Unimancer
                 // Send button. The inner TextArea has a fixed WIDTH so text wraps (no
                 // horizontal scroll); its height tracks the content so a VERTICAL
                 // scrollbar appears once the message is taller than the 56px box.
-                var inputStyle = new GUIStyle(EditorStyles.textArea) { wordWrap = true };
-                float wrapWidth = Mathf.Max(60f, EditorGUIUtility.currentViewWidth - 100f);
-                float contentH = inputStyle.CalcHeight(new GUIContent(_input), wrapWidth);
+                // Build the wrapping style once and reuse it; allocating a GUIStyle every
+                // repaint AND re-measuring the text below was a big chunk of the typing lag.
+                if (_inputStyle == null)
+                    _inputStyle = new GUIStyle(EditorStyles.textArea) { wordWrap = true };
+                var inputStyle = _inputStyle;
+                // CalcHeight is O(text length); only re-measure when the text actually changed.
+                if (!string.Equals(_inputHeightSrc, _input, StringComparison.Ordinal))
+                {
+                    float wrapWidth = Mathf.Max(60f, EditorGUIUtility.currentViewWidth - 100f);
+                    _inputHeightCached = inputStyle.CalcHeight(new GUIContent(_input), wrapWidth);
+                    _inputHeightSrc = _input;
+                }
+                float contentH = _inputHeightCached;
                 _inputScroll = EditorGUILayout.BeginScrollView(
                     _inputScroll, false, false,
                     GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
@@ -1130,6 +1174,33 @@ namespace Unimancer
                 // fill the visible viewport and the wordWrap style wraps text at that edge;
                 // the content-based height lets it scroll vertically inside the 56px box.
                 _input = EditorGUILayout.TextArea(_input, inputStyle, GUILayout.ExpandWidth(true), GUILayout.Height(Mathf.Max(contentH, 50f)));
+
+                // Keep keyboard focus + caret stable while a turn streams. Each streamed
+                // tool/diff line added above shifts this field's control id, which recycles
+                // its TextEditor and slams the caret to 0 — that is what made it impossible
+                // to keep typing while Claude was working. Remember the caret and, only when
+                // a streaming relayout has zeroed it on unchanged text, put it back.
+                if (GUI.GetNameOfFocusedControl() == "UnimancerInput")
+                {
+                    _inputFocused = true;
+                    var te = (TextEditor)GUIUtility.GetStateObject(typeof(TextEditor), GUIUtility.keyboardControl);
+                    if (te != null)
+                    {
+                        int len = _input?.Length ?? 0;
+                        if (busy && _caretIndex > 0 && te.cursorIndex == 0 && te.selectIndex == 0 && _caretIndex <= len)
+                        {
+                            te.cursorIndex = _caretIndex;
+                            te.selectIndex = _caretSelect >= 0 && _caretSelect <= len ? _caretSelect : _caretIndex;
+                        }
+                        _caretIndex = te.cursorIndex;
+                        _caretSelect = te.selectIndex;
+                    }
+                }
+                else
+                {
+                    _inputFocused = false;
+                    _caretIndex = _caretSelect = -1;
+                }
 
                 // Placeholder over the empty, unfocused field (IMGUI has no native one).
                 if (string.IsNullOrEmpty(_input)
