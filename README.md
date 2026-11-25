@@ -192,12 +192,12 @@ contributed `[CliCommand]`s (`ui_create`, `rect_transform_set`, `ui_dump`,
 Guarded by [depguard](https://github.com/) (`guard`). Use `guard install` instead
 of `npm install`; commits/pushes run `guard check` automatically.
 
-> **Dependency note:** `@modelcontextprotocol/sdk` is at **1.30.0** (its earlier
-> HIGH advisories, `GHSA-345p` and `GHSA-8r9q`, are fixed there and the `hono`
-> subtree it pulls is currently advisory-free). `fast-uri` is pinned to 3.1.6 via
-> `overrides` until `ajv` bumps it. Two moderate `qs` advisories remain until
-> 6.16.0 clears the 14-day cooldown; they sit in the SDK's HTTP transport, which
-> Unimancer (stdio-only) never uses.
+> **Dependency note:** `@modelcontextprotocol/sdk` is at **1.32.2** (clears its
+> HIGH advisories) and `zod` at **4.6.7**. Transitives (`fast-uri` 3.1.9,
+> `body-parser` 2.4.0, `proxy-addr` 2.0.8, `source-map-js` 1.2.2, `vite` 8.3.8,
+> `hono` 4.13.18, `@hono/node-server` 2.1.7, `ip-address` 10.7.6, `qs` 6.17.1) are
+> pinned via `overrides` until their parents bump them. Two moderate
+> `@vitest/mocker` advisories remain (dev-only; the fix needs a vitest major).
 
 > **Playwright note:** the HTML→Unity bridge pins **`playwright@1.61.0`** (exact).
 > It was published recently, so depguard's 14-day cooldown may hide it — if
